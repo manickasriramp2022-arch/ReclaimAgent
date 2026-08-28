@@ -119,6 +119,14 @@ jobs:
           reclaim ablate --seeds 12 --size 250 > /dev/null
           reclaim verify-docs --document README.md
 
+      - name: Mutation-test the README gate against the run just generated
+        # These tests skip without run artefacts, which is correct for a fresh
+        # checkout and wrong here: the mutation test is the only evidence the
+        # docs gate can actually fail. The env var turns the skip into an error.
+        env:
+          RECLAIM_REQUIRE_ARTIFACTS: "1"
+        run: pytest tests/test_docscheck.py -q -rs
+
       - name: No secrets committed
         run: |
           test ! -f .env

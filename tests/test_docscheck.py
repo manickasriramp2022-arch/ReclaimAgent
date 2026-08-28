@@ -8,6 +8,7 @@ distrust every other number, including the correct ones.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -127,34 +128,49 @@ def test_check_is_tolerant_of_missing_sweep_and_ablation(
 
 
 def test_the_repository_readme_matches_its_own_artifacts_if_present() -> None:
-    """Not a hard requirement in a fresh checkout: out/ is git-ignored, so this
-    only asserts when a real run's artefacts are actually on disk. CI generates
-    them explicitly and runs the same check as a gate."""
-    repo = Path(__file__).resolve().parents[1]
-    out = repo / "out"
-    marker = out / "latest_run.txt"
-    if not marker.is_file():
+    """out/ is git-ignored, so this only asserts when a real run's artefacts are
+    on disk. CI generates them and sets RECLAIM_REQUIRE_ARTIFACTS so it cannot
+    quietly skip there."""
+    found = _repo_run()
+    if found is None:
         pytest.skip("no run artefacts on disk; CI generates them explicitly")
-    run_id = marker.read_text().strip()
-    if not (out / f"metrics_{run_id}.json").is_file():
-        pytest.skip("run artefacts incomplete")
-    result = verify_docs(run_id, out, repo / "README.md")
+    run_id, out, readme = found
+    result = verify_docs(run_id, out, readme)
     assert result.ok, result.render()
 
 
 # ---------------------------------------------------------------------------
 # Mutation testing: is the gate actually strong, or does it just look strong?
 # ---------------------------------------------------------------------------
+REQUIRE_ARTIFACTS = "RECLAIM_REQUIRE_ARTIFACTS"
+
+
 def _repo_run() -> tuple[str, Path, Path] | None:
+    """Locate the repository's own run artefacts, or None.
+
+    Tests that need these skip when they are absent, which is right for a fresh
+    checkout and wrong for CI: the mutation test is the only evidence the docs
+    gate is real, and a silent skip there would leave that claim unverified in
+    the one place it matters. CI sets RECLAIM_REQUIRE_ARTIFACTS after generating
+    a run, which turns the skip into a failure.
+    """
     repo = Path(__file__).resolve().parents[1]
     out, readme = repo / "out", repo / "README.md"
     marker = out / "latest_run.txt"
+    missing = ""
     if not marker.is_file():
-        return None
-    run_id = marker.read_text().strip()
-    if not (out / f"metrics_{run_id}.json").is_file():
-        return None
-    return run_id, out, readme
+        missing = f"{marker} does not exist"
+    else:
+        run_id = marker.read_text().strip()
+        if not (out / f"metrics_{run_id}.json").is_file():
+            missing = f"metrics for run {run_id} are not on disk"
+        else:
+            return run_id, out, readme
+    if os.environ.get(REQUIRE_ARTIFACTS):
+        raise AssertionError(
+            f"{REQUIRE_ARTIFACTS} is set but {missing}. These checks must not skip here."
+        )
+    return None
 
 
 def test_changing_any_documented_figure_fails_the_gate(tmp_path: Path) -> None:
