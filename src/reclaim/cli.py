@@ -31,6 +31,7 @@ from .benchmark import (
 )
 from .classify import AnthropicClient, Classifier, LlmClient
 from .config import AppConfig, load_config
+from .docscheck import verify_docs
 from .engine import RecoveryRun, infer_seed
 from .escalation import read_escalations
 from .generate import (
@@ -229,6 +230,13 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_verify_docs(args: argparse.Namespace) -> int:
+    run_id = _resolve_run(args.run, args.out_dir)
+    result = verify_docs(run_id, args.out_dir, Path(args.document))
+    print(result.render())
+    return 0 if result.ok else 1
+
+
 def cmd_queue(args: argparse.Namespace) -> int:
     run_id = _resolve_run(args.run, args.out_dir)
     records = [
@@ -340,6 +348,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ver.add_argument("--run", default=None)
     ver.set_defaults(func=cmd_verify)
+
+    vdoc = sub.add_parser(
+        "verify-docs",
+        help="check every headline figure in a document against the current run's artefacts",
+    )
+    vdoc.add_argument("--run", default=None)
+    vdoc.add_argument("--document", default="README.md")
+    vdoc.set_defaults(func=cmd_verify_docs)
 
     que = sub.add_parser("queue", help="print the human escalation queue")
     que.add_argument("--run", default=None)

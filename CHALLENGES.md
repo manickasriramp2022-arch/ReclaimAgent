@@ -245,7 +245,32 @@ had the variant retrying stolen cards, producing a far larger and completely dis
 number: it would have been measuring recklessness, not routing. The variant now leaves hard
 stops intact and a test asserts it.
 
-## 11. Test fixtures that were quietly writing to the project's output directory
+## 11. Every documented number was one edit away from being wrong
+
+**What happened.** Adding the seed sweep, then the cost accounting, then the ablation each
+changed figures the README quotes. After the ablation landed I audited the README against the
+artefacts by hand and found all 36 figures still matched, which was luck as much as care:
+nothing in the repository would have caught it if one had not.
+
+**Why it mattered more here than in most projects.** The claim being made is that these
+numbers are measured, not asserted. A README that has silently drifted out of sync
+undermines that claim more effectively than a missing feature would. A reader who spots one
+stale figure has no way to tell which of the others are also stale, so they discount all of
+them.
+
+**Solution.** The hand audit became `reclaim verify-docs`. It collects every headline figure
+from the run artefacts, the sweep and the ablation, formats each exactly as the README
+presents it, and checks the document contains it. CI regenerates the seed-42 run and both
+studies, then runs the check as a gate: a change that moves a number and does not update the
+README now fails the build.
+
+**Design choice worth recording.** It checks presence of the rendered string rather than
+parsing the Markdown. The property worth enforcing is that the number a reader sees came out
+of the pipeline, not that the prose has a particular shape; a parser would have made ordinary
+prose edits fight the tool. The negative case is tested by mutating one figure in a generated
+document and asserting the check fails on exactly that figure.
+
+## 12. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

@@ -294,7 +294,28 @@ that variant.
 **Cost.** Five full pipeline runs per seed makes this the slowest command in the project, at
 about 15 seconds for 12 seeds. It is worth 15 seconds.
 
-## 28. Defaults chosen where the brief was silent
+## 28. The README's own numbers are CI-verified
+
+**Decision.** `reclaim verify-docs` takes every headline figure this project quotes, formats
+it exactly as the README presents it, and checks the document contains it. CI regenerates the
+seed-42 run, the sweep and the ablation, then runs it as a gate.
+
+**Why.** The whole claim of this project is that its figures are measured rather than
+asserted. A README that has drifted out of sync with the code undermines that claim more
+effectively than a missing feature would: one stale number is enough for a reader to doubt
+the ones that are correct, and they have no way to tell which is which.
+
+**Design note.** It checks *presence* of the rendered figure rather than parsing the
+Markdown. The property worth enforcing is "the number a reader sees is a number the pipeline
+produced", not "the prose has a particular shape", and a parser would make ordinary editing
+of the document fight the tool.
+
+**Cost.** CI regenerates a 250-case run, a 30-seed sweep and a 12-seed ablation to have
+something to check against, which adds about 25 seconds. A test also runs the check against
+whatever artefacts happen to be on disk locally, and skips when there are none, so a fresh
+checkout does not fail on it.
+
+## 29. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

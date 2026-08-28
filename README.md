@@ -142,6 +142,7 @@ reclaim report                              # -> out/report_<run_id>.html
 reclaim replay --case @success              # the decision chain for one recovery
 reclaim replay --case @stopped              # the decision chain for one correct refusal
 reclaim verify-audit                        # prove every reported number from the log
+reclaim verify-docs                         # prove every number in this README came from a run
 reclaim queue                               # the human escalation queue
 ```
 
@@ -304,7 +305,7 @@ enters the recovery-rate denominator.
 | 6 | Escalation queue | `escalation.py` | Exhausted, refused and `UNKNOWN` cases reach a human with the full decision chain, the rule that fired, a recommended action and a priority rank. |
 | 7 | Audit trail | `audit.py` | Append-only JSONL, monotonic sequence, SHA-256 hash chain. Editing or deleting an event is detectable. |
 | 8 | Metrics | `metrics.py` | Computed from the log, never from memory. `verify-audit` re-derives every published number and diffs it. |
-| 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `ablate`, `queue` and `events`. |
+| 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `ablate`, `verify-docs`, `queue` and `events`. |
 | 10 | Report | `report.py` | Self-contained HTML, no external requests, with two worked examples traced event by event. |
 
 ## Stopping rules
@@ -349,6 +350,12 @@ exactly one ingest and one terminal event, that no attempt ever landed on a hard
 unclassified case, that every stop and refusal names a rule, and finally that every field of
 `out/metrics_<run_id>.json` recomputes from the JSONL alone. It runs in CI on a fixture run.
 
+The same discipline is applied to this document. `reclaim verify-docs` takes every headline
+figure quoted in this README, formats it exactly as the README presents it, and checks it
+appears. CI regenerates the seed-42 run, the sweep and the ablation, then runs that check as
+a gate, so **a change that moves a number and does not update the README fails the build.**
+One stale figure in a README is enough to make a reader doubt the ones that are correct.
+
 ## Development
 
 ```bash
@@ -356,10 +363,11 @@ make check      # ruff, mypy --strict, pytest
 make cov        # with coverage
 make benchmark  # sweep 30 seeds and print the delta distribution
 make ablate     # measure what each design decision is worth
+make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-161 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+168 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

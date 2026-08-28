@@ -14,7 +14,7 @@ ABL     ?= 12
 BATCH   := data/batch_$(SEED).jsonl
 
 .DEFAULT_GOAL := help
-.PHONY: help venv install demo generate run benchmark ablate report replay verify queue test lint types check fmt clean distclean ci
+.PHONY: help venv install demo generate run benchmark ablate report replay verify verify-docs queue test lint types check fmt clean distclean ci
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -69,6 +69,9 @@ report: install ## Render the HTML report for the latest run
 verify: install ## Verify the audit log and recompute every metric from it
 	@$(BIN)/reclaim verify-audit
 
+verify-docs: install ## Check every headline figure in README.md against the run on disk
+	@$(BIN)/reclaim verify-docs --document README.md
+
 queue: install ## Print the human escalation queue
 	@$(BIN)/reclaim queue
 
@@ -101,6 +104,11 @@ ci: check ## Everything CI runs, including verify-audit and the seed sweep
 	@$(BIN)/reclaim benchmark --seeds 12 --size 120
 	@$(BIN)/reclaim ablate --seeds 6 --size 120
 	@$(BIN)/reclaim report
+	@$(BIN)/reclaim generate --seed $(SEED) --size $(SIZE)
+	@$(BIN)/reclaim run --batch $(BATCH) --no-llm >/dev/null
+	@$(BIN)/reclaim benchmark --seeds $(SEEDS) --size $(SIZE) >/dev/null
+	@$(BIN)/reclaim ablate --seeds $(ABL) --size $(SIZE) >/dev/null
+	@$(BIN)/reclaim verify-docs --document README.md
 
 clean: ## Remove generated data, logs and reports
 	rm -rf out/*.jsonl out/*.json out/*.html out/*.txt data/*.jsonl
