@@ -484,9 +484,9 @@ class RecoveryRun:
         runtime.charge_times.append(when)
         if txn.mandate_id:
             self.mandate_debits[txn.mandate_id] = when
-        prior = self.config.policies.stopping_rules.cost_floor.prior(
-            runtime.category, attempt_index
-        )
+        cost_floor = self.config.policies.stopping_rules.cost_floor
+        prior = cost_floor.prior(runtime.category, attempt_index)
+        action_cost = cost_floor.cost_of(Channel.RETRY_CHARGE)
         self.batch_runtime.record_attempt(
             outcome.success, prior, self.policy_engine.circuit_breaker_window()
         )
@@ -507,6 +507,7 @@ class RecoveryRun:
                 "roll": outcome.roll,
                 "hours_since_original_failure": outcome.hours_since_original,
                 "contact_uplift_applied": outcome.contact_uplift_applied,
+                "action_cost_paise": action_cost,
             },
             detail=(
                 f"simulated re-presentment #{attempt_index} at p={outcome.probability:.3f}: "
@@ -554,6 +555,7 @@ class RecoveryRun:
         txn, runtime = case.txn, case.runtime
         assert runtime is not None
         result = self.simulator.contact(txn.case_id, channel, step_index)
+        action_cost = self.config.policies.stopping_rules.cost_floor.cost_of(channel)
         runtime.contacts_sent += 1
         self.contact_log.setdefault(txn.customer_id, []).append(when)
 
@@ -570,6 +572,7 @@ class RecoveryRun:
                 "response_probability": result.probability,
                 "roll": result.roll,
                 "contacts_sent_for_case": runtime.contacts_sent,
+                "action_cost_paise": action_cost,
             },
             detail=f"simulated {channel} dispatched to customer {txn.customer_id}",
         )

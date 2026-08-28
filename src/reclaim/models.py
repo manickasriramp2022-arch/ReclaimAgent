@@ -285,6 +285,15 @@ class RunMetrics(Frozen):
     charge_attempts: int
     contacts_sent: int
     attempts_per_rupee_recovered: float
+    # The same efficiency, the way a human reads it. attempts_per_rupee is what
+    # the brief asks for by name, but on a batch of this size it renders as
+    # 0.0008, which tells a reviewer nothing.
+    recovered_paise_per_attempt: int
+    # What the recovery cost to run, summed from the action costs stamped on
+    # each attempt and contact event, so it is derived from the log like
+    # everything else here rather than recomputed from config at report time.
+    action_cost_paise: int
+    net_recovered_paise: int
     hard_stop_cases: int
     hard_stop_cases_with_zero_attempts: int
     correctly_stopped_rate: float
@@ -371,6 +380,85 @@ class ComparisonReport(Frozen):
             + self.baseline_attempts_on_hard_stop_cases
             + self.baseline_attempts_on_unknown_cases
         )
+
+
+class BenchmarkRow(Frozen):
+    """One seed's like-for-like result in a sensitivity sweep."""
+
+    seed: int
+    cases: int
+    addressable_cases: int
+    treatment_recovered_paise: int
+    baseline_recovered_paise: int
+    delta_paise: int
+    delta_pct: float
+    treatment_attempts: int
+    baseline_attempts: int
+    attempt_delta: int
+    attempt_delta_pct: float
+    hard_stop_cases: int
+    correctly_stopped_rate: float
+    circuit_breaker_tripped: bool
+
+
+class BenchmarkReport(Frozen):
+    """A sensitivity sweep across many seeds.
+
+    A single seed's delta is an anecdote. This is what turns it into a
+    measurement: the same comparison repeated over independent batches, with
+    the worst case reported as prominently as the mean.
+    """
+
+    seeds: int
+    batch_size: int
+    config_fingerprint: str
+    rows: list[BenchmarkRow]
+
+    @property
+    def wins(self) -> int:
+        return sum(1 for r in self.rows if r.delta_paise > 0)
+
+    @property
+    def losses(self) -> int:
+        return sum(1 for r in self.rows if r.delta_paise < 0)
+
+    def _pcts(self) -> list[float]:
+        return sorted(r.delta_pct for r in self.rows)
+
+    @property
+    def mean_delta_pct(self) -> float:
+        pcts = self._pcts()
+        return sum(pcts) / len(pcts) if pcts else 0.0
+
+    @property
+    def median_delta_pct(self) -> float:
+        pcts = self._pcts()
+        if not pcts:
+            return 0.0
+        mid = len(pcts) // 2
+        return pcts[mid] if len(pcts) % 2 else (pcts[mid - 1] + pcts[mid]) / 2
+
+    @property
+    def worst_delta_pct(self) -> float:
+        return min(self._pcts()) if self.rows else 0.0
+
+    @property
+    def best_delta_pct(self) -> float:
+        return max(self._pcts()) if self.rows else 0.0
+
+    @property
+    def mean_attempt_delta_pct(self) -> float:
+        if not self.rows:
+            return 0.0
+        return sum(r.attempt_delta_pct for r in self.rows) / len(self.rows)
+
+    @property
+    def total_delta_paise(self) -> int:
+        return sum(r.delta_paise for r in self.rows)
+
+    @property
+    def hard_stops_always_honoured(self) -> bool:
+        return all(r.correctly_stopped_rate == 1.0 for r in self.rows)
 
 
 class RunManifest(Frozen):

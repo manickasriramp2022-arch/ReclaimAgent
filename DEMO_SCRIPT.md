@@ -22,6 +22,7 @@ reclaim generate --seed 42 --size 250
 reclaim run --batch data/batch_42.jsonl --no-llm
 reclaim replay --case case_42_00197
 reclaim replay --case @stopped
+reclaim benchmark --seeds 30
 ```
 
 ---
@@ -153,7 +154,22 @@ reclaim replay --case @stopped
 >
 > That's the case a naive retry loop charges three more times.
 
-## 4:30–5:00 — Proof and the delta (30s)
+## 4:30–5:00 — Does it hold, and can you prove it? (30s)
+
+```bash
+reclaim benchmark --seeds 30
+```
+
+> Before the proof, the obvious objection: is that delta real, or did I pick a good seed?
+> Thirty independently generated batches, eight seconds. **Thirty out of thirty recover
+> more.** Median plus eleven percent. Worst seed plus zero point seven, which I'm showing
+> you rather than hiding. And the seed I've been quoting all the way through this demo, 42,
+> comes in at plus six point seven — *below* the median. The headline is a below-average
+> case.
+>
+> Bottom row: hard stops honoured on every seed. That one isn't a tuning result, it's an
+> invariant, so CI sweeps twelve seeds on every push and fails the build if a single one of
+> them ever retries a stolen card.
 
 ```bash
 reclaim verify-audit
@@ -165,7 +181,8 @@ reclaim verify-audit
 > re-derived from the log and diffed. **If a number in that report can't be reproduced from
 > the audit trail, this command fails.** It runs in CI.
 >
-> So: **plus ₹32,042 on 169 fewer attempts**, 100% of hard stops honoured with zero retries,
+> So: **plus ₹32,042 on 169 fewer attempts, and it holds on 30 out of 30 seeds**, 100% of
+> hard stops honoured with zero retries,
 > 83 compliance refusals itemised by rule, 115 cases escalated with reasoning attached, and
 > every figure recomputable from an append-only log.
 >
@@ -179,6 +196,7 @@ reclaim verify-audit
 |---|---|
 | A command hangs | `Ctrl-C`, use the pre-rendered report in the second tab. Every number in this script is already in it. |
 | `@stopped` picks a different case | Any hard decline works. The line is always "four events, zero attempts". |
-| You are running long | Cut the second `replay`. The report's second worked example shows the same thing. |
+| You are running long | Cut the second `replay`. The report's second worked example shows the same thing. Never cut the sweep — it is the difference between an anecdote and a measurement. |
+| Asked "how many seeds did you try before 42?" | "Forty-two was the first and only one used while building. The sweep answers it properly: thirty out of thirty win, and forty-two is below the median of that distribution." |
 | Asked "are these real numbers?" | "No, and the report says so on its face. Outcomes come from a seeded model in `simulation.yaml`. What's real is that every figure recomputes from the audit log, and that the policy engine can't see the simulator when it decides." |
 | Asked about the RBI figures | "Flagged `unverified` in `compliance.yaml` and listed in `COMPLIANCE_NOTES.md` with the circular to check. I'd rather show you the mechanism and admit the constant needs confirming than quote a number I can't source." |

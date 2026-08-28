@@ -13,12 +13,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .audit import read_audit
+from .benchmark import read_benchmark
 from .config import AppConfig
 from .escalation import read_escalations
 from .metrics import build_comparison, compute_metrics
 from .models import (
     Action,
     AuditEvent,
+    BenchmarkReport,
     ComparisonReport,
     EscalationRecord,
     Outcome,
@@ -104,9 +106,15 @@ def _hero(cmp_: ComparisonReport, metrics: RunMetrics) -> str:
   <div class="card">
     <div class="label">Charge attempts</div>
     <div class="value">{metrics.charge_attempts:,}</div>
-    <div class="note">{cmp_.attempt_delta:+,} vs baseline
-      ({cmp_.attempt_delta_pct:+.0%}); {metrics.attempts_per_rupee_recovered:.4f} per rupee
-      recovered</div>
+    <div class="note">{cmp_.attempt_delta:+,} vs baseline ({cmp_.attempt_delta_pct:+.0%});
+      {_rs(metrics.recovered_paise_per_attempt)} recovered per attempt,
+      {metrics.attempts_per_rupee_recovered:.4f} attempts per rupee</div>
+  </div>
+  <div class="card">
+    <div class="label">Cost of acting</div>
+    <div class="value">{_rs(metrics.action_cost_paise)}</div>
+    <div class="note">summed from the cost stamped on every attempt and contact event;
+      net recovery {_rs(metrics.net_recovered_paise)}</div>
   </div>
   <div class="card">
     <div class="label">Hard stops honoured</div>
@@ -249,6 +257,55 @@ def _chain(events: list[AuditEvent]) -> str:
     return f"<div class='chain'>{''.join(out)}</div>"
 
 
+def _benchmark_section(report: BenchmarkReport | None) -> str:
+    if report is None or not report.rows:
+        return (
+            "<p class='sub'>No sensitivity sweep on record. Run "
+            "<code>reclaim benchmark --seeds 30</code> to generate one.</p>"
+        )
+    rows = "".join(
+        f"""<tr>
+  <td><code>{r.seed}</code></td>
+  <td>{_rs(r.treatment_recovered_paise)}</td>
+  <td>{_rs(r.baseline_recovered_paise)}</td>
+  <td class="{"pos" if r.delta_paise >= 0 else "neg"}">{"+" if r.delta_paise >= 0 else ""}{_rs(r.delta_paise)}</td>
+  <td class="{"pos" if r.delta_pct >= 0 else "neg"}">{r.delta_pct:+.1%}</td>
+  <td class="pos">{r.attempt_delta_pct:+.0%}</td>
+  <td class="{"pos" if r.correctly_stopped_rate == 1.0 else "neg"}">{r.correctly_stopped_rate:.0%}</td>
+</tr>"""
+        for r in report.rows
+    )
+    verdict_class = "pos" if report.losses == 0 else "warnc"
+    return f"""
+<div class="hero">
+  <div class="card">
+    <div class="label">Seeds where ReclaimAgent wins</div>
+    <div class="value {verdict_class}">{report.wins} / {report.seeds}</div>
+    <div class="note">independently generated batches of {report.batch_size} cases</div>
+  </div>
+  <div class="card">
+    <div class="label">Delta, median</div>
+    <div class="value">{report.median_delta_pct:+.1%}</div>
+    <div class="note">mean {report.mean_delta_pct:+.1%}</div>
+  </div>
+  <div class="card">
+    <div class="label">Delta, worst seed</div>
+    <div class="value {"pos" if report.worst_delta_pct >= 0 else "neg"}">{report.worst_delta_pct:+.1%}</div>
+    <div class="note">best seed {report.best_delta_pct:+.1%}</div>
+  </div>
+  <div class="card">
+    <div class="label">Hard stops honoured</div>
+    <div class="value {"pos" if report.hard_stops_always_honoured else "neg"}">
+      {"every seed" if report.hard_stops_always_honoured else "NOT every seed"}</div>
+    <div class="note">zero retries on every hard-decline and revoked-mandate case</div>
+  </div>
+</div>
+<div class="scroll"><table>
+<thead><tr><th>Seed</th><th>ReclaimAgent</th><th>Naive 3&times;</th><th>Delta</th>
+<th>Delta %</th><th>Attempts</th><th>Hard stops</th></tr></thead>
+<tbody>{rows}</tbody></table></div>"""
+
+
 def _worked_example(events: list[AuditEvent], case_id: str, title: str, why: str) -> str:
     chain = [e for e in events if e.case_id == case_id]
     if not chain:
@@ -291,6 +348,7 @@ def build_report(run_id: str, out_dir: Path, config: AppConfig) -> str:
     )
     cmp_ = build_comparison(events, baseline_events or events)
     queue = [r for r in read_escalations(out_dir / "escalations.jsonl") if r.run_id == run_id]
+    benchmark = read_benchmark(out_dir / "benchmark.json")
 
     success_case, stopped_case = pick_demo_cases(run_id, out_dir)
     compliance_descriptions = {
@@ -410,6 +468,16 @@ in <code>COMPLIANCE_NOTES.md</code> as requiring confirmation before production 
 humans, ranked by recoverable value: amount at risk weighted by how much a human can still do
 about that root cause.</p>
 {_queue_table(queue)}
+
+<h2>Does this hold, or is it one lucky batch?</h2>
+<p>A single seed's delta is an anecdote. The sweep below re-runs the identical comparison
+over {benchmark.seeds if benchmark else 0} independently generated batches. The worst seed is
+shown as prominently as the mean, because a strategy that wins on average and loses badly
+somewhere is a different proposition from one that wins everywhere.</p>
+{_benchmark_section(benchmark)}
+<p class="sub">Reproduce with <code>reclaim benchmark --seeds {benchmark.seeds if benchmark else 30}
+--size {benchmark.batch_size if benchmark else 250}</code>. Each row runs the full pipeline and
+the full baseline in a temporary directory, so a sweep never overwrites a real run's artefacts.</p>
 
 <h2>Worked examples</h2>
 <p>Two cases traced through the audit log, event by event.</p>

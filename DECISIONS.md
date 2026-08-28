@@ -215,7 +215,60 @@ the charge-step timings for readability, since the brief asks for a backoff sche
 named policy field. A test asserts plan steps are in ascending time order and that no plan
 schedules more charges than its own attempt cap.
 
-## 23. Defaults chosen where the brief was silent
+## 23. The headline is validated across seeds, not asserted from one
+
+**Decision.** `reclaim benchmark --seeds 30` re-runs the whole comparison over 30
+independently generated batches and reports the distribution: win rate, mean, median, and
+the worst seed given the same prominence as the mean. `make demo` runs it, the HTML report
+renders it, and CI sweeps 12 seeds on every push.
+
+**Why.** Every rupee figure in this project rests on a simulated model. The one thing that
+would make the headline worthless is if the delta were an artefact of the particular batch
+that happened to be seed 42. The sweep is what converts "we recovered ₹32,042 more" from an
+anecdote into a claim with an error bar attached.
+
+**What it found.** 30 of 30 seeds recover more, median +11.0%, worst +0.7%, and seed 42's
++6.7% sits below the median. That last fact is now stated in the README, because a headline
+that turns out to be a below-average case is worth more to a reviewer than one they have to
+take on trust.
+
+**Cost.** The worst seed is +0.7%, which is nearly nothing. The README says so rather than
+quoting only the mean. What survives on an unlucky batch is the attempt reduction, which
+never drops below −24% on any seed measured.
+
+## 24. CI gates the invariant, reports the tuning outcome
+
+**Decision.** The CI sweep fails the build if any seed shows a hard-stop case with a retry.
+It prints the win rate but does not gate on it.
+
+**Why.** Honouring hard stops is a correctness property; a legitimate policy change must
+never move it. The size of the recovery delta is a tuning outcome; a legitimate policy
+change might. Gating on the second would make CI punish honest experiments, and gating on
+neither would let the one property that actually matters regress silently.
+
+## 25. Actions record what they cost, in the audit event
+
+**Decision.** Every `CHARGE_ATTEMPT` and `CONTACT_SENT` event carries
+`inputs.action_cost_paise`. Total cost, and therefore net recovery, is summed from the log.
+
+**Why.** The metrics contract in this project is that everything published is recomputable
+from the audit trail alone. Reading channel prices out of `config/policies.yaml` at report
+time would have broken that: the report would depend on the config file still holding the
+prices that were in force when the run happened. Stamping the price onto the event at the
+moment the money was spent keeps cost inside the same guarantee as every other number, and
+means an old audit log stays correctly costed after the price list changes.
+
+**Side effect.** The baseline is metered on the same basis, so "the naive strategy costs
+more to run" is a measured statement rather than an assertion. A test asserts it.
+
+## 26. `attempts_per_rupee_recovered` is kept, and paired with a readable form
+
+The brief names that metric, so it is computed and published under that name. On a batch of
+this size it renders as `0.0008`, which tells a reviewer nothing. `recovered_paise_per_attempt`
+carries the same information the way a human reads it (₹1,334 recovered per charge attempt)
+and both appear side by side. Renaming the one the brief asked for would have been worse.
+
+## 27. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

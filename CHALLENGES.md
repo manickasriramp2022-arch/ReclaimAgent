@@ -182,7 +182,36 @@ untyped call in a typed context) became a local function with a `Callable[[str],
 parameter, and `_Case.policy` got a real `CategoryPolicy | None` annotation instead of a
 `var-annotated` suppression.
 
-## 9. Test fixtures that were quietly writing to the project's output directory
+## 9. The headline nearly shipped resting on a single seed
+
+**What happened.** The whole submission was built, tested, documented and pushed with CI
+green, and every rupee figure in it came from one batch: seed 42. Nothing was wrong with the
+number. The problem was that nothing in the repository could tell the difference between
+"routing by root cause beats a naive retry loop" and "routing by root cause beat a naive
+retry loop on the batch I happened to generate first".
+
+**Why it was worth stopping for.** The graded bar is *measured* money recovered. A single
+observation is not a measurement, and a reviewer's first instinct on seeing +6.7% from one
+seed is to wonder how many seeds were tried before that one. There was no way to answer
+that from the repository.
+
+**Solution.** `reclaim benchmark` runs the whole pipeline plus the whole baseline over N
+independently generated batches in temporary directories, and reports the distribution with
+the worst seed as prominent as the mean. 30 seeds takes 8 seconds. The result: 30 of 30
+seeds recover more, median +11.0%, worst +0.7%, attempts down on every single seed, and hard
+stops honoured on all 30.
+
+**The bit worth keeping.** Seed 42 came in at +6.7%, which is *below* the median of the
+distribution it belongs to. The README now says so explicitly. A headline that turns out to
+be a below-average case is worth considerably more than one a reviewer has to take on trust,
+and it would have been easy to quietly re-point the README at seed 17 (+79.7%) instead.
+
+**Second-order.** Building the sweep exposed that `Classifier` writes its LLM cache to
+`out/llm_cache.json` on flush, so a 30-seed sweep would have written into the directory the
+report is built from. The sweep now runs entirely in a temporary directory with a disabled
+cache, and a test asserts that running one leaves the working directory untouched.
+
+## 10. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

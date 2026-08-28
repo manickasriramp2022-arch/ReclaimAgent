@@ -38,6 +38,7 @@ def run_baseline(
     baseline_run_id = f"{run_id}-baseline"
     path = audit_path(baseline_run_id, out_dir)
     simulator = OutcomeSimulator(config.simulation, batch_seed)
+    attempt_cost = config.policies.stopping_rules.cost_floor.cost_of(Channel.RETRY_CHARGE)
     t0 = max(r.attempt_ts for r in records).replace(minute=0, second=0, microsecond=0) + timedelta(
         hours=1
     )
@@ -128,6 +129,7 @@ def run_baseline(
                         "roll": outcome.roll,
                         "hours_since_original_failure": outcome.hours_since_original,
                         "compliance_checked": False,
+                        "action_cost_paise": attempt_cost,
                     },
                     detail=(
                         f"naive re-presentment #{attempt} at p={outcome.probability:.3f}: "

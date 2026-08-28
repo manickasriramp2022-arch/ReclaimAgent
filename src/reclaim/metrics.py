@@ -48,6 +48,7 @@ def compute_metrics(events: list[AuditEvent], strategy: str) -> RunMetrics:
     recovered: dict[str, int] = {}
     attempts_by_case: Counter[str] = Counter()
     contacts_by_case: Counter[str] = Counter()
+    action_cost = 0
     refusals_by_case: Counter[str] = Counter()
     refusals_by_rule: Counter[str] = Counter()
     stops_by_rule: Counter[str] = Counter()
@@ -67,8 +68,10 @@ def compute_metrics(events: list[AuditEvent], strategy: str) -> RunMetrics:
             category_of[event.case_id] = event.category
         elif event.action is Action.CHARGE_ATTEMPT:
             attempts_by_case[event.case_id] += 1
+            action_cost += int(event.inputs.get("action_cost_paise", 0))
         elif event.action is Action.CONTACT_SENT:
             contacts_by_case[event.case_id] += 1
+            action_cost += int(event.inputs.get("action_cost_paise", 0))
         elif event.action is Action.COMPLIANCE_REFUSAL:
             refusals_by_case[event.case_id] += 1
             refusals_by_rule[event.rule or "unspecified"] += 1
@@ -127,6 +130,9 @@ def compute_metrics(events: list[AuditEvent], strategy: str) -> RunMetrics:
         charge_attempts=charge_attempts,
         contacts_sent=contacts,
         attempts_per_rupee_recovered=round(_safe_div(charge_attempts, recovered_value / 100.0), 6),
+        recovered_paise_per_attempt=int(_safe_div(recovered_value, charge_attempts)),
+        action_cost_paise=action_cost,
+        net_recovered_paise=recovered_value - action_cost,
         hard_stop_cases=len(hard_stop_cases),
         hard_stop_cases_with_zero_attempts=len(hard_stop_clean),
         correctly_stopped_rate=round(_safe_div(len(hard_stop_clean), len(hard_stop_cases)), 6)
@@ -239,7 +245,8 @@ def headline(metrics: RunMetrics, baseline: RunMetrics | None = None) -> list[st
         f"compliance-refused   : Rs {metrics.compliance_refused_terminal_paise / 100:>14,.2f}  (excluded from the denominator)",
         f"addressable value    : Rs {metrics.addressable_value_paise / 100:>14,.2f}",
         f"RECOVERED            : Rs {metrics.recovered_paise / 100:>14,.2f}  ({metrics.recovery_rate_on_addressable:.2%} of addressable, {metrics.recovered_cases} cases)",
-        f"charge attempts      : {metrics.charge_attempts:>17,}  ({metrics.attempts_per_rupee_recovered:.4f} attempts per rupee recovered)",
+        f"charge attempts      : {metrics.charge_attempts:>17,}  (Rs {metrics.recovered_paise_per_attempt / 100:,.2f} recovered per attempt, {metrics.attempts_per_rupee_recovered:.4f} attempts per rupee)",
+        f"cost of acting       : Rs {metrics.action_cost_paise / 100:>14,.2f}  (net Rs {metrics.net_recovered_paise / 100:,.2f})",
         f"hard stops honoured  : {metrics.hard_stop_cases_with_zero_attempts}/{metrics.hard_stop_cases} with zero retries ({metrics.correctly_stopped_rate:.0%})",
         f"escalated            : {metrics.escalated_cases} cases, Rs {metrics.escalated_value_paise / 100:,.2f} at risk",
         f"compliance refusals  : {metrics.compliance_refusals}",

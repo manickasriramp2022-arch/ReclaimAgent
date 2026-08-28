@@ -17,6 +17,12 @@ from pathlib import Path
 from . import __version__
 from .audit import read_audit
 from .baseline import run_baseline
+from .benchmark import (
+    DEFAULT_SEEDS,
+    render_benchmark,
+    run_benchmark,
+    write_benchmark,
+)
 from .classify import AnthropicClient, Classifier, LlmClient
 from .config import AppConfig, load_config
 from .engine import RecoveryRun, infer_seed
@@ -155,6 +161,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark(args: argparse.Namespace) -> int:
+    config = load_config(args.config_dir)
+    print(SIMULATION_NOTICE)
+    print(
+        f"running {args.seeds} independent batches of {args.size} cases, "
+        "rule layer only, no network\n"
+    )
+    report = run_benchmark(config, seeds=args.seeds, size=args.size, first_seed=args.first_seed)
+    path = write_benchmark(report, args.out_dir / "benchmark.json")
+    print(render_benchmark(report))
+    print(f"\nwrote {path}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     run_id = _resolve_run(args.run, args.out_dir)
     path = write_report(run_id, args.out_dir, load_config(args.config_dir))
@@ -262,6 +282,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="require the LLM fallback (fails if ANTHROPIC_API_KEY is unset)",
     )
     run.set_defaults(func=cmd_run, llm_mode="auto")
+
+    ben = sub.add_parser(
+        "benchmark",
+        help="re-run the baseline comparison across many seeds and report the distribution",
+    )
+    ben.add_argument("--seeds", type=int, default=DEFAULT_SEEDS, help="how many batches to run")
+    ben.add_argument("--size", type=int, default=DEFAULT_BATCH_SIZE)
+    ben.add_argument("--first-seed", type=int, default=1)
+    ben.set_defaults(func=cmd_benchmark)
 
     rep = sub.add_parser("report", help="render the self-contained HTML report")
     rep.add_argument("--run", default=None)

@@ -54,6 +54,26 @@ jobs:
       - name: verify-audit on the fixture run
         run: reclaim verify-audit
 
+      - name: Seed sweep, is the delta a strategy property or one lucky batch
+        run: reclaim benchmark --seeds 12 --size 120
+
+      - name: Hard stops must be honoured on every seed
+        # The win rate is reported, not gated: policy tuning may legitimately
+        # move it. Honouring hard stops is not a tuning parameter, so a single
+        # seed that retries a stolen card or a revoked mandate fails the build.
+        run: |
+          python - <<'PY'
+          import json, sys, pathlib
+          report = json.loads(pathlib.Path("out/benchmark.json").read_text())
+          rows = report["rows"]
+          bad = [r["seed"] for r in rows if r["correctly_stopped_rate"] != 1.0]
+          wins = sum(1 for r in rows if r["delta_paise"] > 0)
+          print(f"{len(rows)} seeds swept; ReclaimAgent recovers more on {wins}")
+          if bad:
+              sys.exit(f"hard stops were NOT honoured on seeds: {bad}")
+          print("hard stops honoured on every seed")
+          PY
+
       - name: Render the report
         run: reclaim report
 

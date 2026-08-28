@@ -124,8 +124,9 @@ make demo
 ```
 
 `make demo` creates a virtualenv, installs the package, generates a batch, runs the
-recovery pipeline and the naive baseline, verifies the audit trail, renders the HTML report
-and opens it. It takes about **1.3 seconds** of compute after the install step.
+recovery pipeline and the naive baseline, sweeps 30 independent seeds to check the result
+is not a fluke, verifies the audit trail, renders the HTML report and opens it. It takes
+about **11 seconds** of compute after the install step.
 
 Or step by step:
 
@@ -134,6 +135,7 @@ make install
 
 reclaim generate --seed 42 --size 250       # -> data/batch_42.jsonl
 reclaim run --batch data/batch_42.jsonl     # -> out/audit_<run_id>.jsonl, escalations, metrics
+reclaim benchmark --seeds 30                # is the delta real? sweep 30 independent batches
 reclaim report                              # -> out/report_<run_id>.html
 reclaim replay --case @success              # the decision chain for one recovery
 reclaim replay --case @stopped              # the decision chain for one correct refusal
@@ -170,7 +172,8 @@ value at risk        : Rs     983,109.00  (250 cases)
 compliance-refused   : Rs     149,917.00  (excluded from the denominator)
 addressable value    : Rs     833,192.00
 RECOVERED            : Rs     513,660.00  (61.65% of addressable, 101 cases)
-charge attempts      :               385  (0.0008 attempts per rupee recovered)
+charge attempts      :               385  (Rs 1,334.18 recovered per attempt)
+cost of acting       : Rs       1,497.70  (net Rs 512,162.30)
 hard stops honoured  : 22/22 with zero retries (100%)
 escalated            : 115 cases, Rs 428,843.00 at risk
 compliance refusals  : 83
@@ -197,6 +200,33 @@ unclassified ones, recovering nothing at all.
 That is why the headline is the like-for-like row and why the gross figure is printed next
 to it rather than quietly dropped. A recovery agent that beats its baseline by ignoring the
 rules has not solved the problem.
+
+### Is that delta real, or one lucky batch?
+
+A single seed's result is an anecdote. `reclaim benchmark --seeds 30` re-runs the identical
+comparison over 30 independently generated batches of 250 cases and reports the
+distribution, worst case included:
+
+| | |
+|---|---:|
+| Seeds where ReclaimAgent recovers more | **30 / 30** |
+| Seeds where it recovers less | 0 / 30 |
+| Delta, median | **+11.0%** |
+| Delta, mean | +18.2% |
+| Delta, worst seed | **+0.7%** |
+| Delta, best seed | +79.7% |
+| Charge attempts, mean change | **−34.2%** |
+| Hard stops honoured on every seed | **yes** |
+
+Two things worth saying plainly about this table. The worst seed is +0.7%, which is close
+enough to zero to be honest about: on an unlucky batch the advantage nearly vanishes, and
+what survives is the 34% reduction in attempts. And the seed quoted throughout this README,
+42, comes in at +6.7% — **below the median**. The headline is not the best case, it is a
+below-average one that happened to be the first seed used.
+
+The one row that is not a distribution is the last. Honouring hard stops is not a tuning
+outcome, it is an invariant, so CI sweeps 12 seeds on every push and fails the build if a
+single one of them ever retries a stolen card or a revoked mandate.
 
 ### Recovery by root cause
 
@@ -244,7 +274,7 @@ enters the recovery-rate denominator.
 | 6 | Escalation queue | `escalation.py` | Exhausted, refused and `UNKNOWN` cases reach a human with the full decision chain, the rule that fired, a recommended action and a priority rank. |
 | 7 | Audit trail | `audit.py` | Append-only JSONL, monotonic sequence, SHA-256 hash chain. Editing or deleting an event is detectable. |
 | 8 | Metrics | `metrics.py` | Computed from the log, never from memory. `verify-audit` re-derives every published number and diffs it. |
-| 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `queue` and `events`. |
+| 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `queue` and `events`. |
 | 10 | Report | `report.py` | Self-contained HTML, no external requests, with two worked examples traced event by event. |
 
 ## Stopping rules
@@ -294,10 +324,11 @@ unclassified case, that every stop and refusal names a rule, and finally that ev
 ```bash
 make check      # ruff, mypy --strict, pytest
 make cov        # with coverage
-make ci         # everything CI runs, including verify-audit on a fixture run
+make benchmark  # sweep 30 seeds and print the delta distribution
+make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-126 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+142 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading
