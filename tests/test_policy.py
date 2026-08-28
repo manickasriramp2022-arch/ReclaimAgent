@@ -8,6 +8,7 @@ just below the boundary and confirms it does *not* fire.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -324,3 +325,51 @@ def test_plan_steps_are_in_ascending_time_order(engine: PolicyEngine) -> None:
     for category in RootCause:
         hours = [s.after_hours for s in engine.select(category).plan]
         assert hours == sorted(hours), f"{category} plan steps are out of order"
+
+
+# ---------------------------------------------------------------------------
+# A typo in policies.yaml must not silently change behaviour
+# ---------------------------------------------------------------------------
+def test_an_unrecognised_policy_key_is_rejected(config_copy: Path) -> None:
+    """Regression. Writing `plann` instead of `plan` left INSUFFICIENT_FUNDS,
+    the largest recoverable category, with no steps at all. The run still exited
+    0 and reported a confident result while recovering nothing from it."""
+    from reclaim.config import load_config
+
+    path = config_copy / "policies.yaml"
+    path.write_text(
+        path.read_text().replace(
+            "    plan:\n      - {after_hours: 4,   channel: dunning_email}",
+            "    plann:\n      - {after_hours: 4,   channel: dunning_email}",
+            1,
+        )
+    )
+    with pytest.raises(ValueError, match="unrecognised key"):
+        load_config(config_copy)
+
+
+def test_the_rejection_suggests_what_was_meant(config_copy: Path) -> None:
+    from reclaim.config import load_config
+
+    path = config_copy / "policies.yaml"
+    path.write_text(
+        path.read_text().replace("    max_charge_attempts: 3", "    max_charge_attemps: 3", 1)
+    )
+    with pytest.raises(ValueError, match="did you mean 'max_charge_attempts'"):
+        load_config(config_copy)
+
+
+def test_a_missing_required_policy_key_is_rejected(config_copy: Path) -> None:
+    from reclaim.config import load_config
+
+    path = config_copy / "policies.yaml"
+    path.write_text(path.read_text().replace("    quiet_hours_apply: true\n", "", 1))
+    with pytest.raises(ValueError, match="missing required key"):
+        load_config(config_copy)
+
+
+def test_the_shipped_config_loads_cleanly(config_copy: Path) -> None:
+    """The guard must not reject the configuration this project ships."""
+    from reclaim.config import load_config
+
+    assert load_config(config_copy).policies.policies

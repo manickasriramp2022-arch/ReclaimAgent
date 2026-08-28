@@ -219,6 +219,8 @@ distribution, worst case included:
 | Delta, worst seed | **+0.7%** |
 | Delta, best seed | +79.7% |
 | Charge attempts, mean change | **−34.2%** |
+| Recovery rate, median across seeds | 44.8% |
+| Recovery rate, range across seeds | 22.8% to 65.1% |
 | Hard stops honoured on every seed | **yes** |
 
 Two things worth saying plainly about this table. The worst seed is +0.7%, which is close
@@ -380,7 +382,7 @@ make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-181 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+186 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

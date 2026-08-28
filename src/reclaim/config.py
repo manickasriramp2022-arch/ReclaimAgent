@@ -403,11 +403,67 @@ class AppConfig(Strict):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
 
+# Keys a policy block may contain. Anything else is a typo, and a typo here
+# silently changes the policy the system claims to be executing: writing `plann`
+# instead of `plan` leaves a recoverable category with no steps at all, and the
+# run still exits 0 while recovering nothing from it.
+POLICY_KEYS: frozenset[str] = frozenset(
+    {
+        "recoverable",
+        "immediate_terminal",
+        "terminal_rule",
+        "max_charge_attempts",
+        "backoff_hours",
+        "allowed_channels",
+        "quiet_hours_apply",
+        "plan",
+        "terminal_conditions",
+        "always_escalate",
+        "rationale",
+    }
+)
+
+
+def _closest_key(unknown: str) -> str | None:
+    """Best guess at what a mistyped key was meant to be."""
+    import difflib
+
+    matches = difflib.get_close_matches(unknown, sorted(POLICY_KEYS), n=1, cutoff=0.6)
+    return matches[0] if matches else None
+
+
 def _coerce_policies(raw: dict[str, Any]) -> dict[str, Any]:
-    """Normalise the policies block into CategoryPolicy-shaped mappings."""
+    """Normalise the policies block into CategoryPolicy-shaped mappings.
+
+    Unknown keys are rejected rather than ignored. Silently dropping one turns a
+    misspelling into a policy change that no test, metric or audit event would
+    reveal.
+    """
     out: dict[str, Any] = {}
     for name, block in raw.items():
         category = RootCause(name)
+        unknown = sorted(set(block) - POLICY_KEYS)
+        if unknown:
+            hints = []
+            for key in unknown:
+                near = _closest_key(key)
+                hints.append(f"{key!r}" + (f" (did you mean {near!r}?)" if near else ""))
+            raise ValueError(
+                f"policies.yaml: policy {name} has unrecognised key(s): {', '.join(hints)}. "
+                "A misspelled key would silently change this policy's behaviour, so it is "
+                "rejected rather than ignored."
+            )
+        missing = {
+            "recoverable",
+            "immediate_terminal",
+            "max_charge_attempts",
+            "quiet_hours_apply",
+        } - set(block)
+        if missing:
+            raise ValueError(
+                f"policies.yaml: policy {name} is missing required key(s): "
+                f"{', '.join(sorted(missing))}"
+            )
         plan = [
             StepPlan(after_hours=float(s["after_hours"]), channel=Channel(s["channel"]))
             for s in block.get("plan", [])

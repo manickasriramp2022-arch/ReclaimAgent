@@ -315,6 +315,7 @@ def _benchmark_section(report: BenchmarkReport | None) -> str:
   <td>{_rs(r.baseline_recovered_paise)}</td>
   <td class="{"pos" if r.delta_paise >= 0 else "neg"}">{"+" if r.delta_paise >= 0 else ""}{_rs(r.delta_paise)}</td>
   <td class="{"pos" if r.delta_pct >= 0 else "neg"}">{r.delta_pct:+.1%}</td>
+  <td>{r.treatment_recovery_rate:.1%}</td>
   <td class="pos">{r.attempt_delta_pct:+.0%}</td>
   <td class="{"pos" if r.correctly_stopped_rate == 1.0 else "neg"}">{r.correctly_stopped_rate:.0%}</td>
 </tr>"""
@@ -334,6 +335,13 @@ def _benchmark_section(report: BenchmarkReport | None) -> str:
     <div class="note">mean {report.mean_delta_pct:+.1%}</div>
   </div>
   <div class="card">
+    <div class="label">Recovery rate, median</div>
+    <div class="value">{report.median_recovery_rate:.1%}</div>
+    <div class="note">across seeds: {report.worst_recovery_rate:.1%} to
+      {report.best_recovery_rate:.1%}. The single-run rate at the top of this page is one
+      draw from this spread, not the typical one.</div>
+  </div>
+  <div class="card">
     <div class="label">Delta, worst seed</div>
     <div class="value {"pos" if report.worst_delta_pct >= 0 else "neg"}">{report.worst_delta_pct:+.1%}</div>
     <div class="note">best seed {report.best_delta_pct:+.1%}</div>
@@ -347,7 +355,7 @@ def _benchmark_section(report: BenchmarkReport | None) -> str:
 </div>
 <div class="scroll"><table>
 <thead><tr><th>Seed</th><th>ReclaimAgent</th><th>Naive 3&times;</th><th>Delta</th>
-<th>Delta %</th><th>Attempts</th><th>Hard stops</th></tr></thead>
+<th>Delta %</th><th>Recovery rate</th><th>Attempts</th><th>Hard stops</th></tr></thead>
 <tbody>{rows}</tbody></table></div>"""
 
 

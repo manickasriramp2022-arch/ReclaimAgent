@@ -385,7 +385,23 @@ That trades a false number for a broken tool, which is worse: an old audit log i
 valid record of what happened, it simply does not know what the actions cost. Saying so is
 the correct behaviour.
 
-## 33. Defaults chosen where the brief was silent
+## 33. Unknown keys in policies.yaml are rejected, not ignored
+
+A misspelled key is not a harmless no-op here: it silently changes the policy the engine
+claims to be executing, and the audit log records the resulting behaviour as though it were
+intended. The loader rejects unrecognised keys with a `difflib` suggestion, and rejects
+missing required ones. An out-of-range value was already caught by a Pydantic constraint; an
+unknown key was not.
+
+## 34. Both distributions are reported, not just the flattering one
+
+The seed sweep reports the spread of the recovery rate as well as the spread of the delta.
+Seed 42 sits below the median on the delta and near the top of the range on the rate; giving
+the distribution for the first and a bare point estimate for the second would be selective
+honesty. The README names 44.8%, the median, as the number to use for how much of the
+addressable value this recovers.
+
+## 35. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

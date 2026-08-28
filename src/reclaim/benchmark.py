@@ -69,6 +69,9 @@ def run_benchmark(
                     cases=comparison.treatment.cases,
                     addressable_cases=t.cases,
                     treatment_recovered_paise=t.recovered_paise,
+                    treatment_recovery_rate=round(
+                        comparison.treatment.recovery_rate_on_addressable, 6
+                    ),
                     baseline_recovered_paise=b.recovered_paise,
                     delta_paise=comparison.like_for_like_delta_paise,
                     delta_pct=round(comparison.like_for_like_delta_pct, 6),
@@ -125,6 +128,10 @@ def render_benchmark(report: BenchmarkReport) -> str:
         f"{report.median_delta_pct:+.1%}",
         f"delta, worst / best seed               : {report.worst_delta_pct:+.1%} / "
         f"{report.best_delta_pct:+.1%}",
+        f"recovery rate, mean / median           : {report.mean_recovery_rate:.1%} / "
+        f"{report.median_recovery_rate:.1%}",
+        f"recovery rate, worst / best seed       : {report.worst_recovery_rate:.1%} / "
+        f"{report.best_recovery_rate:.1%}",
         f"charge attempts, mean change           : {report.mean_attempt_delta_pct:+.1%}",
         f"hard stops honoured on every seed      : {report.hard_stops_always_honoured}",
         "",

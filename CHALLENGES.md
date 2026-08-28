@@ -379,7 +379,37 @@ system whose entire claim is that its numbers are measured, the cost of that con
 not a crash, which would be honest, but a number that looks measured and is not. Searching
 for the shape found more instances than waiting for failures did.
 
-## 15. Test fixtures that were quietly writing to the project's output directory
+## 15. Two more from the same sweep, and the one that flattered the headline
+
+**A typo in policies.yaml was silently accepted.** Writing `plann` instead of `plan` left
+`INSUFFICIENT_FUNDS`, the largest recoverable category, with no steps at all. The run exited
+0, printed a confident result, and recovered nothing from that category. Nothing in the
+system distinguished it from a deliberate policy choice: the audit log faithfully recorded
+`plan_exhausted` for every one of those cases, which is exactly what it should record for a
+policy with no plan. An out-of-range value was caught by a Pydantic constraint; an unknown
+key was not, because the loader read known keys and ignored the rest. The loader now rejects
+unrecognised keys, suggests the intended one via `difflib`, and rejects missing required ones.
+Four tests, one of which asserts the shipped configuration still loads.
+
+**The recovery rate quoted in the README was a high outlier.** Checking whether the pipeline
+held at scale, a 10,000-case batch recovered 40.2% of addressable value, against the 61.65%
+the README quoted from seed 42. Recomputing the rate across the 30 sweep seeds: mean 44.6%,
+median 44.8%, and 28 of 30 seeds below 61.65%.
+
+This one mattered more than it first looked. I had already given the *delta* the full
+distribution treatment and made a point of noting that seed 42 came in below the median, which
+reads as commendable restraint. But I had not done the same for the *rate*, where the same
+seed is at roughly the 93rd percentile. Reporting the spread only for the figure where the
+headline happens to look modest, and a bare point estimate for the one where it looks good, is
+selective honesty, and it is more corrosive than an outright error because it wears the
+costume of rigour.
+
+The sweep now reports the recovery-rate distribution alongside the delta distribution, the
+report renders both, and the README says in as many words that seed 42 is a conservative
+sample of the delta and a flattering sample of the rate, and that the median of 44.8% is the
+number to use for how much of the addressable value this recovers.
+
+## 16. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

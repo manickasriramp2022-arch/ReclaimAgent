@@ -165,6 +165,7 @@ def test_sweep_reports_a_loss_honestly() -> None:
             addressable_cases=50,
             treatment_recovered_paise=100,
             baseline_recovered_paise=200,
+            treatment_recovery_rate=0.20,
             delta_paise=-100,
             delta_pct=-0.5,
             treatment_attempts=10,
@@ -181,6 +182,7 @@ def test_sweep_reports_a_loss_honestly() -> None:
             addressable_cases=50,
             treatment_recovered_paise=300,
             baseline_recovered_paise=200,
+            treatment_recovery_rate=0.60,
             delta_paise=100,
             delta_pct=0.5,
             treatment_attempts=10,
@@ -198,6 +200,26 @@ def test_sweep_reports_a_loss_honestly() -> None:
     assert report.worst_delta_pct == -0.5
     assert "1/2" in render_benchmark(report)
     assert "-50.0%" in render_benchmark(report)
+
+
+def test_the_rate_distribution_gets_the_same_treatment_as_the_delta(
+    sweep: BenchmarkReport,
+) -> None:
+    """Reporting the spread only for the figure where the headline seed looks
+    conservative, and not for the one where it looks flattering, would be
+    selective honesty. Both distributions must be available."""
+    rates = [r.treatment_recovery_rate for r in sweep.rows]
+    assert all(0.0 <= rate <= 1.0 for rate in rates)
+    assert sweep.worst_recovery_rate == min(rates)
+    assert sweep.best_recovery_rate == max(rates)
+    assert min(rates) <= sweep.median_recovery_rate <= max(rates)
+    assert min(rates) <= sweep.mean_recovery_rate <= max(rates)
+    assert sweep.seeds_below_rate(max(rates) + 0.01) == len(rates)
+    assert sweep.seeds_below_rate(min(rates)) == 0
+
+    text = render_benchmark(sweep)
+    assert "recovery rate, mean / median" in text
+    assert "recovery rate, worst / best seed" in text
 
 
 def test_sweep_is_deterministic(config: AppConfig) -> None:

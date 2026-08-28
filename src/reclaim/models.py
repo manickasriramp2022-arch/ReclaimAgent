@@ -399,6 +399,7 @@ class BenchmarkRow(Frozen):
     baseline_recovered_paise: int
     delta_paise: int
     delta_pct: float
+    treatment_recovery_rate: float
     treatment_attempts: int
     baseline_attempts: int
     attempt_delta: int
@@ -466,6 +467,37 @@ class BenchmarkReport(Frozen):
     @property
     def hard_stops_always_honoured(self) -> bool:
         return all(r.correctly_stopped_rate == 1.0 for r in self.rows)
+
+    # The recovery RATE gets the same distribution treatment as the delta.
+    # Reporting the spread only for the figure where the headline seed happens
+    # to look conservative, and not for the one where it looks flattering, would
+    # be selective honesty.
+    def _rates(self) -> list[float]:
+        return sorted(r.treatment_recovery_rate for r in self.rows)
+
+    @property
+    def mean_recovery_rate(self) -> float:
+        rates = self._rates()
+        return sum(rates) / len(rates) if rates else 0.0
+
+    @property
+    def median_recovery_rate(self) -> float:
+        rates = self._rates()
+        if not rates:
+            return 0.0
+        mid = len(rates) // 2
+        return rates[mid] if len(rates) % 2 else (rates[mid - 1] + rates[mid]) / 2
+
+    @property
+    def worst_recovery_rate(self) -> float:
+        return min(self._rates()) if self.rows else 0.0
+
+    @property
+    def best_recovery_rate(self) -> float:
+        return max(self._rates()) if self.rows else 0.0
+
+    def seeds_below_rate(self, rate: float) -> int:
+        return sum(1 for r in self.rows if r.treatment_recovery_rate < rate)
 
 
 class AblationRow(Frozen):
