@@ -170,6 +170,14 @@ reclaim benchmark --seeds 30
 > Bottom row: hard stops honoured on every seed. That one isn't a tuning result, it's an
 > invariant, so CI sweeps twelve seeds on every push and fails the build if a single one of
 > them ever retries a stolen card.
+>
+> One more line on that table, because it doesn't flatter me. The recovery *rate* on this
+> batch is sixty-two percent. Across the thirty seeds the median is forty-five, and a
+> ten-thousand-case batch comes in at forty. So seed forty-two is a below-median sample of
+> the delta and an above-median sample of the rate. If you want one number for how much of
+> the addressable value this recovers, take forty-five percent, not sixty-two. Both spreads
+> are in the report because reporting only the one that made me look good would be the exact
+> failure this project is built to avoid.
 
 *If you have 15 seconds spare, show the ablation table already in the open report instead of
 re-running it.*
@@ -212,4 +220,6 @@ reclaim verify-audit
 | You are running long | Cut the second `replay`. The report's second worked example shows the same thing. Never cut the sweep — it is the difference between an anecdote and a measurement. |
 | Asked "how many seeds did you try before 42?" | "Forty-two was the first and only one used while building. The sweep answers it properly: thirty out of thirty win, and forty-two is below the median of that distribution." |
 | Asked "are these real numbers?" | "No, and the report says so on its face. Outcomes come from a seeded model in `simulation.yaml`. What's real is that every figure recomputes from the audit log, and that the policy engine can't see the simulator when it decides." |
+| Asked "so what recovery rate should we expect?" | "Forty-five percent of addressable value, the median across thirty seeds. Not the sixty-two on screen, which is a high sample. The report shows the whole range, 23 to 65." |
+| Asked "why is the rate so variable?" | "Two hundred and fifty cases is a small sample and the amounts are skewed, so a couple of large recoveries move the rate a lot. The delta against the baseline is much steadier: thirty of thirty seeds, and the attempt reduction never drops below 24 percent." |
 | Asked about the RBI figures | "Flagged `unverified` in `compliance.yaml` and listed in `COMPLIANCE_NOTES.md` with the circular to check. I'd rather show you the mechanism and admit the constant needs confirming than quote a number I can't source." |
