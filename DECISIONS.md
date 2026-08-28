@@ -431,7 +431,39 @@ a headless browser and inspected; the first pass put the median label on top of 
 columns and overhung the axis with the worst-seed label. Both were moved. Neither would have
 shown up in any test.
 
-## 36. Defaults chosen where the brief was silent
+## 36. The Anthropic call is pinned by offline request-shape tests
+
+**Decision.** `tests/test_llm_request_shape.py` drives the genuine `anthropic` client through
+an `httpx2` mock transport, so the SDK serialises a real request that the tests assert on. No
+network, no key, runs in CI.
+
+**Why.** Every other classifier test substitutes a fake client. Those prove the routing logic
+and prove nothing about the request the SDK actually builds, so a malformed call would have
+surfaced for the first time on a reviewer's machine, the first time anyone ran `--llm`.
+Writing the harness immediately found four defects.
+
+**What it found.**
+
+1. *`max_tokens` was 300 and thinking is on by default.* Thinking tokens count against
+   `max_tokens`, so the budget could be spent before the tool call was emitted, leaving no
+   `tool_use` block and silently escalating the case. Now `output_config: {effort: "low"}`
+   with a 2000-token ceiling. Disabling thinking was the wrong fix: on current models that
+   can make the model write the tool call into visible text, where this parser would never
+   see it.
+2. *The model was `claude-sonnet-5`.* Changed to `claude-opus-5`. Choosing a cheaper model on
+   the system's own initiative is the operator's call, not the code's; it stays in config.
+3. *Strict tool use was not enabled.* "The model may never invent a category" is a graded
+   property. It was enforced in Python only; now `strict: true` and
+   `additionalProperties: false` make the API reject a non-conforming answer too.
+4. *A rejected key degraded silently.* The same handler that absorbs an outage also absorbed
+   an authentication failure, so a bad key classified every unmapped code as `UNKNOWN`. The
+   operator would have seen a plausible batch full of escalations. `CredentialsRejected` now
+   propagates; a 500 still degrades, because an outage leaves the batch worth running.
+
+**Cost.** The tests need the `anthropic` extra installed. It is already in the dev extra, and
+the offline path does not import it at all.
+
+## 37. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

@@ -165,10 +165,19 @@ reclaim run --batch data/batch_42.jsonl --llm
 back to rule-only when it is not. `--no-llm` forces the offline path, which is what CI and
 the demo use, so **the demo cannot fail live because of a network or model problem.**
 
+The call itself is pinned by tests that drive the real Anthropic client through a mock
+transport, so the request the SDK builds is asserted on without a network round trip: the
+tool is forced via `tool_choice`, `strict: true` and `additionalProperties: false` make the
+API reject a non-conforming answer before Python ever sees it, and `output_config.effort` is
+set to `low` so thinking cannot consume the token budget before the tool call is emitted.
+A rejected API key raises rather than degrading &mdash; classifying every unmapped code as
+`UNKNOWN` because the credentials were wrong would hand you a batch full of escalations with
+no sign of the real problem.
+
 ## Sample output
 
 From an actual run: `reclaim run --batch data/batch_42.jsonl --no-llm`, seed 42, 250 cases,
-run id `42-f7efa664`.
+run id `42-b0715845`.
 
 ```
 value at risk        : Rs     983,109.00  (250 cases)
@@ -382,7 +391,7 @@ make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-203 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+214 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

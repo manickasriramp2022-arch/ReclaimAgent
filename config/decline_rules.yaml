@@ -50,8 +50,8 @@ llm_fallback:
   # A model answer below this confidence is discarded and the case becomes
   # UNKNOWN, which escalates to a human.
   min_confidence: 0.75
-  model: "claude-sonnet-5"
-  max_tokens: 300
+  model: "claude-opus-5"
+  max_tokens: 2000
   # Cache key is the decline code, so a 250-case batch makes at most one call
   # per distinct unmapped code.
   cache_enabled: true

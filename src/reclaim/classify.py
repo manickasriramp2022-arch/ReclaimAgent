@@ -32,6 +32,11 @@ CLOSED_SET: tuple[str, ...] = tuple(str(c) for c in RootCause)
 
 CLASSIFIER_TOOL: dict[str, Any] = {
     "name": "record_root_cause",
+    # Strict tool use makes the API itself reject an input that does not match
+    # this schema, so "the model may not invent a category" is enforced at the
+    # boundary as well as in _parse_model_payload. Requires
+    # additionalProperties: false and a complete `required` list.
+    "strict": True,
     "description": (
         "Record the single root-cause category for a payment decline code. "
         "You must choose from the provided enum. If the code does not clearly "
@@ -58,6 +63,7 @@ CLASSIFIER_TOOL: dict[str, Any] = {
             },
         },
         "required": ["category", "confidence", "rationale"],
+        "additionalProperties": False,
     },
 }
 
@@ -76,6 +82,17 @@ SYSTEM_PROMPT = (
     "code is opaque, answer UNKNOWN with low confidence. Always call the "
     "record_root_cause tool."
 )
+
+
+class CredentialsRejected(RuntimeError):
+    """The API rejected our credentials.
+
+    Distinct from every other model failure. A timeout or an outage should
+    degrade to UNKNOWN and escalate, because the batch is still worth running.
+    A bad key is not a degraded run: it means every unmapped code would be
+    escalated for a reason that has nothing to do with the payment, and the
+    operator would see a plausible-looking batch instead of an error.
+    """
 
 
 class LlmClient(Protocol):
@@ -103,6 +120,8 @@ class AnthropicClient:
     def classify(
         self, decline_code: str, description: str, model: str, max_tokens: int
     ) -> tuple[RootCause, float, str] | None:
+        from anthropic import AuthenticationError, PermissionDeniedError
+
         # The SDK's create() is overloaded across streaming and tool shapes; the
         # request is assembled here as one mapping so the cast is confined to a
         # single line rather than spread across five keyword arguments.
@@ -112,6 +131,13 @@ class AnthropicClient:
             "system": SYSTEM_PROMPT,
             "tools": [CLASSIFIER_TOOL],
             "tool_choice": {"type": "tool", "name": "record_root_cause"},
+            # Thinking is on by default on current models and its tokens count
+            # against max_tokens. Mapping one decline code is a simple task, so
+            # it runs at low effort; that keeps the budget for the tool call
+            # rather than disabling thinking, which on Opus 5 can make the model
+            # write the call into visible text where this parser would never
+            # see it.
+            "output_config": {"effort": "low"},
             "messages": [
                 {
                     "role": "user",
@@ -123,7 +149,13 @@ class AnthropicClient:
                 }
             ],
         }
-        message = self._client.messages.create(**params)
+        try:
+            message = self._client.messages.create(**params)
+        except (AuthenticationError, PermissionDeniedError) as exc:
+            raise CredentialsRejected(
+                f"the Anthropic API rejected these credentials ({type(exc).__name__}). "
+                "Fix ANTHROPIC_API_KEY, or run with --no-llm."
+            ) from exc
         for block in message.content:
             if getattr(block, "type", None) == "tool_use":
                 payload = getattr(block, "input", None)
@@ -254,6 +286,11 @@ class Classifier:
             try:
                 answer = self.llm_client.classify(code, description, fb.model, fb.max_tokens)
                 self.llm_calls_made += 1
+            except CredentialsRejected:
+                # Never swallow this. Degrading here would classify every
+                # unmapped code as UNKNOWN and hand the operator a batch full of
+                # escalations with no indication that the key was the problem.
+                raise
             except Exception as exc:  # noqa: BLE001 - a model outage must degrade, not crash
                 return Classification(
                     case_id="",

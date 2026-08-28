@@ -409,7 +409,49 @@ report renders both, and the README says in as many words that seed 42 is a cons
 sample of the delta and a flattering sample of the rate, and that the median of 44.8% is the
 number to use for how much of the addressable value this recovers.
 
-## 16. Test fixtures that were quietly writing to the project's output directory
+## 16. The LLM path had never once been exercised against the real SDK
+
+**What happened.** The classifier's Anthropic call was covered by a dozen tests, all of which
+substituted a fake client. They proved the routing (rules first, model second, confidence
+floor, cache) and proved nothing whatsoever about the request the SDK builds. `ANTHROPIC_API_KEY`
+is unset in this environment and CI deliberately never sets it, so the genuine call had run
+exactly zero times. A malformed request would have surfaced for the first time on a reviewer's
+machine, on the first `--llm` run.
+
+**What I did.** Drove the real `anthropic` client through an `httpx2` mock transport, so the
+SDK serialises an actual request that a test can assert on, with no network and no key. (A
+first attempt failed on `import httpx` — the 1.x SDK is built on `httpx2`, not `httpx`.)
+
+**Four defects, found within minutes of the harness existing.**
+
+*`max_tokens` was 300, and thinking is on by default on current models.* Thinking tokens count
+against `max_tokens`. A thinking pass could exhaust the budget before the tool call was
+emitted, leaving a response with no `tool_use` block, which my parser reads as "no usable
+answer" and escalates. Every unmapped code would have escalated, billed, for no visible
+reason. Fixed with low effort and a larger ceiling. Disabling thinking would have been the
+wrong fix: on current models that can make the model write the tool call into visible prose,
+which this parser would never see.
+
+*Strict tool use was off.* The brief's requirement is "never let the LLM invent a category". I
+enforced that in Python and stopped there; the API can enforce it too, and now does.
+
+*A rejected API key degraded silently.* The handler that absorbs a model outage also absorbed
+an authentication failure. Run `--llm` with a bad key and every unmapped code became `UNKNOWN`:
+a full batch of escalations, exit 0, no indication the credentials were the problem. This is
+the same defect shape as the shared queue file, the missing baseline, and the unrecorded cost —
+a fallback producing plausible output instead of an honest failure — and it is the fifth
+instance. A 500 still degrades, because an outage leaves the batch worth running; a bad key
+does not.
+
+*The model default was a cheaper one than I would choose deliberately.* Moved to the current
+default; it stays in config so an operator can trade it down knowingly.
+
+**The lesson.** A mocked collaborator tests your code's reaction to an answer. It never tests
+the question you asked. Everything on the far side of that fake — the request shape, the
+schema the API validates, what the SDK does with your parameters, which errors it raises — was
+unexamined, and four things were wrong in it.
+
+## 17. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which
