@@ -308,7 +308,7 @@ enters the recovery-rate denominator.
 | 7 | Audit trail | `audit.py` | Append-only JSONL, monotonic sequence, SHA-256 hash chain. Editing or deleting an event is detectable. |
 | 8 | Metrics | `metrics.py` | Computed from the log, never from memory. `verify-audit` re-derives every published number and diffs it. |
 | 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `ablate`, `verify-docs`, `queue` and `events`. |
-| 10 | Report | `report.py` | Self-contained HTML, no external requests, with two worked examples traced event by event. |
+| 10 | Report | `report.py`, `charts.py` | Self-contained HTML, no external requests. Three hand-rolled inline SVG charts, two worked examples traced event by event, and every charted number also present as a table. |
 
 ## Stopping rules
 
@@ -382,7 +382,7 @@ make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-186 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+203 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

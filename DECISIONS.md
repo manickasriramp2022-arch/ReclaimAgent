@@ -401,7 +401,37 @@ the distribution for the first and a bare point estimate for the second would be
 honesty. The README names 44.8%, the median, as the number to use for how much of the
 addressable value this recovers.
 
-## 35. Defaults chosen where the brief was silent
+## 35. The report's charts are hand-rolled inline SVG
+
+**Decision.** Three charts, generated as SVG strings in `charts.py`: the seed-sweep delta
+distribution, charge attempts by root cause, and the ablation contribution. No charting
+library, no external stylesheet, no JavaScript.
+
+**Why.** A test asserts the rendered report contains no `http://` or `https://`, because a
+report that phones out is not self-contained and will render differently, or not at all, on
+a reviewer's machine. Every charting library either loads from a CDN or needs a build step.
+Computing the geometry in Python is about 300 lines and owes nothing to anyone.
+
+**Colour was validated, not chosen by eye.** The two-series palette (blue `#2a78d6`, orange
+`#eb6834`) was run through a palette validator against this report's white surface:
+colour-blind separation deltaE 24.7, normal-vision 33.6, both above 3:1 contrast. A
+single-series chart uses blue alone and carries no legend, since one colour needs no key.
+
+**Zeros are drawn.** A bar of length zero renders as nothing, and on this page "nothing" is
+the single most important measured result: it is what a hard-stop category's retry count
+looks like. Each zero gets a visible stub and an explicit label, with a caption saying it is
+a measured result rather than missing data. Three tests cover it. This is the same principle
+as decisions 30 and 32, applied to pixels instead of numbers.
+
+**Single theme.** The report has always been light-only, so the charts are too. Theme-aware
+charts inside a fixed-light page would be inconsistent for no benefit.
+
+**Verified by looking.** A validator checks colour, not layout. The charts were rendered in
+a headless browser and inspected; the first pass put the median label on top of the tall
+columns and overhung the axis with the worst-seed label. Both were moved. Neither would have
+shown up in any test.
+
+## 36. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

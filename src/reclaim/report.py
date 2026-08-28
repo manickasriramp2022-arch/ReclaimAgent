@@ -15,6 +15,7 @@ from pathlib import Path
 from .ablation import FULL_SYSTEM, read_ablation
 from .audit import read_audit
 from .benchmark import read_benchmark
+from .charts import ablation_contribution, attempts_by_category, sweep_distribution
 from .config import AppConfig
 from .escalation import read_run_escalations
 from .metrics import build_comparison, compute_metrics
@@ -76,6 +77,12 @@ background:#eef2f7;color:#3b4756;margin-left:6px}
 .tag.rf{background:#fff3d6;color:var(--warn)}
 .foot{margin-top:50px;padding-top:16px;border-top:1px solid var(--line);
 color:var(--muted);font-size:12.5px}
+.chart{margin:18px 0 26px;padding:16px 18px 10px;background:#fff;
+border:1px solid var(--line);border-radius:8px;overflow-x:auto}
+.chart figcaption{margin-bottom:10px}
+.chart .ct{display:block;font-size:14px;font-weight:650;letter-spacing:-.01em;color:var(--ink)}
+.chart .cs{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+.chart svg{display:block;min-width:640px}
 """
 
 
@@ -516,6 +523,30 @@ def build_report(run_id: str, out_dir: Path, config: AppConfig) -> str:
         config.compliance.contact.max_contacts_per_customer_per_week.note
     )
 
+    sweep_chart = (
+        sweep_distribution([r.delta_pct for r in benchmark.rows], benchmark.median_delta_pct)
+        if benchmark is not None
+        else ""
+    )
+    ablation_chart = (
+        ablation_contribution([(r.variant, r.recovery_vs_full_pct) for r in ablation.ranked])
+        if ablation is not None
+        else ""
+    )
+    if has_baseline:
+        base_attempts = {c.category: c.charge_attempts for c in baseline_metrics.per_category}
+        attempts_chart = attempts_by_category(
+            [
+                (str(c.category), c.charge_attempts, base_attempts.get(c.category, 0))
+                for c in metrics.per_category
+                if c.cases
+            ]
+        )
+    else:
+        # Without a baseline log there is no second series, and a one-series
+        # version of this chart would restate the table beside it.
+        attempts_chart = ""
+
     unverified = config.compliance.unverified_entries()
     generated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
@@ -560,6 +591,7 @@ that model. They are not production recovery results and must not be quoted as s
 
 <h2>Recovery by root cause</h2>
 {_category_table(metrics, baseline_metrics, has_baseline)}
+{attempts_chart}
 
 <h2>Stopping rules that fired</h2>
 <p>Every terminal state in the audit log names the rule that produced it, so
@@ -586,6 +618,7 @@ over {benchmark.seeds if benchmark else 0} independently generated batches. The 
 shown as prominently as the mean, because a strategy that wins on average and loses badly
 somewhere is a different proposition from one that wins everywhere.</p>
 {_benchmark_section(benchmark)}
+{sweep_chart}
 <p class="sub">Reproduce with <code>reclaim benchmark --seeds {benchmark.seeds if benchmark else 30}
 --size {benchmark.batch_size if benchmark else 250}</code>. Each row runs the full pipeline and
 the full baseline in a temporary directory, so a sweep never overwrites a real run's artefacts.</p>
@@ -595,6 +628,7 @@ the full baseline in a temporary directory, so a sweep never overwrites a real r
 exactly one feature and re-runs everything over the identical seeds, so the
 &quot;recovery lost&quot; column is what that decision is worth.</p>
 {_ablation_section(ablation)}
+{ablation_chart}
 <p>The last row is the one worth reading carefully. Removing the cost floor changes recovery
 by essentially nothing and <em>increases</em> attempts. That is the correct result, not a
 disappointing one: the cost floor is a spend-control rule, not a recovery rule, and it earns
