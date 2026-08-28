@@ -351,10 +351,23 @@ unclassified case, that every stop and refusal names a rule, and finally that ev
 `out/metrics_<run_id>.json` recomputes from the JSONL alone. It runs in CI on a fixture run.
 
 The same discipline is applied to this document. `reclaim verify-docs` takes every headline
-figure quoted in this README, formats it exactly as the README presents it, and checks it
-appears. CI regenerates the seed-42 run, the sweep and the ablation, then runs that check as
-a gate, so **a change that moves a number and does not update the README fails the build.**
-One stale figure in a README is enough to make a reader doubt the ones that are correct.
+figure quoted in this README and checks it appears on a line, table row or paragraph that
+also contains its context anchor, so a value of `0` has to be in the right row rather than
+merely somewhere on the page. CI regenerates the seed-42 run, the sweep and the ablation and
+runs that check as a gate, so **a change that moves a number and does not update this README
+fails the build.**
+
+Two things about the strength of that gate, since overstating it would be exactly the sin it
+exists to prevent. A test mutates each of the 34 checked figures in turn and asserts the gate
+notices, so no check is decorative. But a figure quoted in several places is only caught when
+every occurrence is wrong: `"30"` appears twelve times in this document, so the gate catches
+a number that has gone stale, not a partial edit that updated one mention and missed another.
+And figures that cannot be verified by a text search at all are excluded rather than counted
+&mdash; the categories that recover nothing render as `0` inside a table row full of
+legitimate zeroes, so no substring check on them could ever fail. That those categories
+recover nothing is guaranteed by the hard-stop invariant instead, which `verify-audit`
+asserts, three tests cover, and CI gates across every seed of the sweep and every variant of
+the ablation.
 
 ## Development
 
@@ -367,7 +380,7 @@ make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-173 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+177 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

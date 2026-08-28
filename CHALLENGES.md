@@ -302,7 +302,46 @@ each one character's worth of convenience that silently trades correctness for n
 to handle a missing case. Neither showed up in 168 tests, a 30-seed sweep, an ablation, or
 green CI, because every one of those exercised the happy path where both files exist.
 
-## 13. Test fixtures that were quietly writing to the project's output directory
+## 13. The verification tool needed verifying
+
+**What happened.** Having built `verify-docs` and advertised it in the README and the pull
+request as a gate that "fails the build on a single stale figure", I went back to ask whether
+that was true. It was not.
+
+The check searched the whole document for a bare substring. Three of the per-category figures
+rendered as `"0"`, which matches any document containing a zero; six more were two or three
+characters. So of 37 "verified" figures, at least five carried checks that could not fail
+under any circumstances. The tool was reporting coverage it did not have, and I had repeated
+that number publicly.
+
+**Why this one stung.** Every other defect in this file was a bug in the product. This was a
+false claim about the strength of a verification, made by me, in the document the
+verification was supposed to protect. It is the exact failure mode the tool exists to prevent.
+
+**Solution, in three parts.**
+
+*Anchor each figure.* Every figure now carries a context string that must appear in the same
+segment. Anchoring on the *line* was the obvious fix and wrong: prose wraps, so a figure and
+its anchor routinely land on different lines, and the first attempt failed on a sentence that
+happened to break after "and 30 on". The correct unit is the Markdown row or paragraph, so
+`segment()` splits table rows and code lines out individually and rejoins wrapped prose.
+
+*Stop counting checks that cannot fail.* A hard-stop category's recovered value is `0` inside
+a table row of legitimate zeroes. No substring check on it can ever fail, so it is excluded
+rather than counted. That those categories recover nothing is covered by the hard-stop
+invariant, which is asserted in three places and gated in CI across every seed and variant.
+
+*Measure the gate by mutation.* A test rewrites each of the 34 checked figures in turn and
+asserts the check fails. All 34 are caught. Mutating only one occurrence catches 30 of 34,
+because four figures are quoted in several places, and `"30"` appears twelve times in the
+README.
+
+**What the README says now.** Not "fails on a single stale figure" but: mutation-tested at 34
+of 34; a figure quoted in several places is caught only when every occurrence is wrong;
+unverifiable figures are excluded rather than counted, with a pointer to what does cover them.
+Weaker, and true.
+
+## 14. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

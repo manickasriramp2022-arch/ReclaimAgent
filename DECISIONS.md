@@ -342,7 +342,33 @@ measured claims, silently manufacturing a number out of a missing file is the wo
 behaviour. Also found by adversarial review, and covered by a test asserting the string
 `+₹0.00` never appears in a baseline-less report.
 
-## 31. Defaults chosen where the brief was silent
+## 31. The docs gate is anchored, mutation-tested, and honest about its limits
+
+**Decision.** Each documented figure carries a context anchor that must appear in the same
+table row, code line or paragraph. Figures that cannot be verified by a text search are
+excluded rather than counted. A test mutates every checked figure and asserts the gate
+notices. The README states precisely what the gate does and does not catch.
+
+**Why.** The first version searched the whole document for a bare substring. Three of the
+per-category checks rendered as `"0"`, which matches any document containing a zero, and six
+more were two or three characters long. The gate reported 37 verified figures while at least
+five of those checks could not fail. A gate that inflates its own coverage is worse than no
+gate, because it converts an unexamined assumption into a false assurance.
+
+**Design note.** Anchoring on the *line* was the obvious fix and the wrong one: prose wraps,
+so a figure and the words that give it meaning routinely sit on different lines. Anchoring on
+the whole document makes every anchor vacuous. The right unit is the Markdown row or
+paragraph, so `segment()` splits table rows and fenced-code lines out individually and joins
+wrapped prose back into paragraphs. Reflowing a sentence no longer fights the tool.
+
+**Limit, stated rather than glossed.** Mutating every occurrence of a figure is caught 34
+times out of 34. Mutating a single occurrence is caught 30 times out of 34, because four
+figures are quoted in more than one place and `"30"` appears twelve times in the README. So
+the gate catches a stale number; it does not catch a partial edit that fixed one mention and
+missed another. The README says this in those words, because an overstated claim about a
+verification tool is precisely the failure the tool exists to prevent.
+
+## 32. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|
