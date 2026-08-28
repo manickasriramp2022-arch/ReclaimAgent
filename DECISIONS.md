@@ -315,7 +315,34 @@ something to check against, which adds about 25 seconds. A test also runs the ch
 whatever artefacts happen to be on disk locally, and skips when there are none, so a fresh
 checkout does not fail on it.
 
-## 29. Defaults chosen where the brief was silent
+## 29. The escalation queue is written twice, on purpose
+
+**Decision.** `out/escalations.jsonl` holds the most recent run, which is what the brief asks
+for and what a human opens. `out/escalations_<run_id>.jsonl` is that run's permanent copy, and
+`verify-audit`, `queue` and `report` all read the per-run file first.
+
+**Why.** Originally there was only the shared file, so running a second batch silently
+destroyed the first run's human work list. `verify-audit --run <older_id>` then failed with
+"queue has 0 records, log has 34 ESCALATED events", and `queue --run <older_id>` returned
+nothing. An audit trail that is append-only and permanent is worth very little if the work
+list it produced is not. Found by adversarial review of the finished submission, not by a
+test; there are now three regression tests, two of which fail without the fix.
+
+## 30. A missing baseline log produces a notice, not a zero
+
+**Decision.** When `out/audit_<run_id>-baseline.jsonl` is absent the report says so and drops
+the comparison entirely: the delta card reads "not measured", the headline comparison section
+is replaced by a statement that no claim is being made, and the three baseline columns
+disappear from the per-category table.
+
+**Why.** The report previously fell back to comparing the run against itself, which rendered
+a confident-looking "+₹0.00" delta and a full table of zeroes. A reader has no way to
+distinguish that from a real measurement of no improvement. On a page whose entire purpose is
+measured claims, silently manufacturing a number out of a missing file is the worst available
+behaviour. Also found by adversarial review, and covered by a test asserting the string
+`+₹0.00` never appears in a baseline-less report.
+
+## 31. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

@@ -17,7 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .audit import VerificationResult, read_audit, verify_structure
-from .escalation import read_escalations
+from .escalation import read_run_escalations
 from .metrics import build_comparison, compute_metrics, diff_metrics, read_metrics
 from .models import Action, ComparisonReport
 
@@ -89,8 +89,7 @@ def verify_run(run_id: str, out_dir: Path = Path("out")) -> VerificationResult:
                 "" if same else "reported comparison differs from the recomputed one",
             )
 
-    escalations = read_escalations(out_dir / "escalations.jsonl")
-    mine = [e for e in escalations if e.run_id == run_id]
+    mine = read_run_escalations(out_dir, run_id)
     logged = {e.case_id: e.value_paise for e in events if e.action is Action.ESCALATED}
     result.check(
         "escalation queue matches the ESCALATED events in the log",

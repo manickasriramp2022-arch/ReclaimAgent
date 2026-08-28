@@ -16,7 +16,7 @@ from .ablation import FULL_SYSTEM, read_ablation
 from .audit import read_audit
 from .benchmark import read_benchmark
 from .config import AppConfig
-from .escalation import read_escalations
+from .escalation import read_run_escalations
 from .metrics import build_comparison, compute_metrics
 from .models import (
     AblationReport,
@@ -87,10 +87,27 @@ def _esc(text: object) -> str:
     return html.escape(str(text))
 
 
-def _hero(cmp_: ComparisonReport, metrics: RunMetrics) -> str:
+def _hero(cmp_: ComparisonReport, metrics: RunMetrics, has_baseline: bool) -> str:
     delta = cmp_.like_for_like_delta_paise
     cls = "pos" if delta >= 0 else "neg"
     sign = "+" if delta >= 0 else ""
+    # Never render a zero delta out of a missing file. A report whose whole
+    # point is measured claims must not silently compare a run to itself.
+    if has_baseline:
+        delta_value = f'<div class="value {cls}">{sign}{_rs(delta)}</div>'
+        delta_note = (
+            f'<div class="note">{cmp_.like_for_like_delta_pct:+.1%} on the '
+            f"{cmp_.treatment_like_for_like.cases} cases both strategies were "
+            "permitted to work</div>"
+        )
+        attempt_note = f"{cmp_.attempt_delta:+,} vs baseline ({cmp_.attempt_delta_pct:+.0%}); "
+    else:
+        delta_value = '<div class="value warnc">not measured</div>'
+        delta_note = (
+            '<div class="note">no baseline log on disk for this run, so this report '
+            "claims no comparison</div>"
+        )
+        attempt_note = ""
     return f"""
 <div class="hero">
   <div class="card">
@@ -101,16 +118,14 @@ def _hero(cmp_: ComparisonReport, metrics: RunMetrics) -> str:
   </div>
   <div class="card">
     <div class="label">Delta vs naive baseline</div>
-    <div class="value {cls}">{sign}{_rs(delta)}</div>
-    <div class="note">{cmp_.like_for_like_delta_pct:+.1%} on the
-      {cmp_.treatment_like_for_like.cases} cases both strategies were permitted to work</div>
+    {delta_value}
+    {delta_note}
   </div>
   <div class="card">
     <div class="label">Charge attempts</div>
     <div class="value">{metrics.charge_attempts:,}</div>
-    <div class="note">{cmp_.attempt_delta:+,} vs baseline ({cmp_.attempt_delta_pct:+.0%});
-      {_rs(metrics.recovered_paise_per_attempt)} recovered per attempt,
-      {metrics.attempts_per_rupee_recovered:.4f} attempts per rupee</div>
+    <div class="note">{attempt_note}{_rs(metrics.recovered_paise_per_attempt)} recovered
+      per attempt, {metrics.attempts_per_rupee_recovered:.4f} attempts per rupee</div>
   </div>
   <div class="card">
     <div class="label">Cost of acting</div>
@@ -139,7 +154,9 @@ def _hero(cmp_: ComparisonReport, metrics: RunMetrics) -> str:
 </div>"""
 
 
-def _category_table(metrics: RunMetrics, baseline: RunMetrics) -> str:
+def _category_table(metrics: RunMetrics, baseline: RunMetrics, has_baseline: bool) -> str:
+    # With no baseline log the three comparison columns would be this run
+    # compared against itself, so they are dropped rather than shown as zeroes.
     base_by_cat = {c.category: c for c in baseline.per_category}
     rows = []
     for cat in metrics.per_category:
@@ -150,6 +167,12 @@ def _category_table(metrics: RunMetrics, baseline: RunMetrics) -> str:
         b_att = b.charge_attempts if b else 0
         delta = cat.recovered_paise - b_rec
         cls = "pos" if delta > 0 else ("neg" if delta < 0 else "")
+        sign = "+" if delta >= 0 else ""
+        baseline_cells = (
+            f'<td>{_rs(b_rec)}</td><td>{b_att}</td><td class="{cls}">{sign}{_rs(delta)}</td>'
+            if has_baseline
+            else ""
+        )
         rows.append(
             f"""<tr>
   <td><code>{_esc(cat.category)}</code></td>
@@ -160,28 +183,33 @@ def _category_table(metrics: RunMetrics, baseline: RunMetrics) -> str:
   <td>{cat.charge_attempts}</td>
   <td>{cat.contacts}</td>
   <td>{cat.refusals}</td>
-  <td>{cat.escalated_cases}</td>
-  <td>{_rs(b_rec)}</td>
-  <td>{b_att}</td>
-  <td class="{cls}">{"+" if delta >= 0 else ""}{_rs(delta)}</td>
+  <td>{cat.escalated_cases}</td>{baseline_cells}
 </tr>"""
         )
+    total_delta = metrics.recovered_paise - baseline.recovered_paise
+    baseline_headers = (
+        "<th>Baseline recovered</th><th>Baseline attempts</th><th>Delta</th>"
+        if has_baseline
+        else ""
+    )
+    baseline_footer = (
+        f"<td>{_rs(baseline.recovered_paise)}</td><td>{baseline.charge_attempts}</td>"
+        f"<td>{'+' if total_delta >= 0 else ''}{_rs(total_delta)}</td>"
+        if has_baseline
+        else ""
+    )
     return f"""
 <div class="scroll"><table>
 <thead><tr>
   <th>Root cause</th><th>Cases</th><th>At risk</th><th>Recovered</th><th>Rate</th>
-  <th>Attempts</th><th>Contacts</th><th>Refusals</th><th>Escalated</th>
-  <th>Baseline recovered</th><th>Baseline attempts</th><th>Delta</th>
+  <th>Attempts</th><th>Contacts</th><th>Refusals</th><th>Escalated</th>{baseline_headers}
 </tr></thead>
 <tbody>{"".join(rows)}</tbody>
 <tfoot><tr>
   <td>Total</td><td>{metrics.cases}</td><td>{_rs(metrics.value_at_risk_paise)}</td>
   <td>{_rs(metrics.recovered_paise)}</td><td>{metrics.recovery_rate_gross:.1%}</td>
   <td>{metrics.charge_attempts}</td><td>{metrics.contacts_sent}</td>
-  <td>{metrics.compliance_refusals}</td><td>{metrics.escalated_cases}</td>
-  <td>{_rs(baseline.recovered_paise)}</td><td>{baseline.charge_attempts}</td>
-  <td>{"+" if metrics.recovered_paise >= baseline.recovered_paise else ""}
-      {_rs(metrics.recovered_paise - baseline.recovered_paise)}</td>
+  <td>{metrics.compliance_refusals}</td><td>{metrics.escalated_cases}</td>{baseline_footer}
 </tr></tfoot>
 </table></div>"""
 
@@ -343,6 +371,64 @@ Measured over {report.seeds} seeds of {report.batch_size} cases each. Reproduce 
 <code>reclaim ablate --seeds {report.seeds}</code>.</p>"""
 
 
+def _comparison_section(
+    cmp_: ComparisonReport, metrics: RunMetrics, has_baseline: bool, run_id: str
+) -> str:
+    """The baseline comparison, or an explicit statement that there isn't one.
+
+    With no baseline log on disk the honest output is a notice, not a table of
+    zeroes computed by comparing the run against itself.
+    """
+    if not has_baseline:
+        return f"""
+<h2>No baseline comparison for this run</h2>
+<p>The baseline audit log <code>audit_{_esc(run_id)}-baseline.jsonl</code> is not on disk, so
+this report makes <strong>no claim</strong> about how this run compares to a naive retry
+strategy. Run <code>reclaim run</code> again to produce it. Everything else on this page is
+derived from the treatment log alone and is unaffected.</p>"""
+    return f"""
+<h2>The headline, and its caveat</h2>
+<p>Against the naive baseline &mdash; retry every failed transaction three times at 24-hour
+intervals regardless of root cause &mdash; over the identical batch, the identical seed and
+the identical outcome simulator:</p>
+<div class="scroll"><table>
+<thead><tr><th>Comparison</th><th>ReclaimAgent</th><th>Naive 3&times;</th><th>Delta</th></tr></thead>
+<tbody>
+<tr><td>Recovered, cases both strategies were permitted to work
+    ({cmp_.treatment_like_for_like.cases} cases)</td>
+  <td>{_rs(cmp_.treatment_like_for_like.recovered_paise)}</td>
+  <td>{_rs(cmp_.baseline_like_for_like.recovered_paise)}</td>
+  <td class="{"pos" if cmp_.like_for_like_delta_paise >= 0 else "neg"}">
+    {"+" if cmp_.like_for_like_delta_paise >= 0 else ""}{_rs(cmp_.like_for_like_delta_paise)}
+    ({cmp_.like_for_like_delta_pct:+.1%})</td></tr>
+<tr><td>Charge attempts spent to get there</td>
+  <td>{cmp_.treatment_like_for_like.charge_attempts:,}</td>
+  <td>{cmp_.baseline_like_for_like.charge_attempts:,}</td>
+  <td class="pos">{cmp_.attempt_delta:+,} ({cmp_.attempt_delta_pct:+.0%})</td></tr>
+<tr><td>Hard-stop cases retried</td>
+  <td class="pos">0</td>
+  <td class="neg">{cmp_.baseline_attempts_on_hard_stop_cases} attempts</td>
+  <td>&mdash;</td></tr>
+<tr><td>Unclassified cases retried</td>
+  <td class="pos">0</td>
+  <td class="neg">{cmp_.baseline_attempts_on_unknown_cases} attempts</td>
+  <td>&mdash;</td></tr>
+</tbody></table></div>
+
+<p><strong>The caveat, stated plainly.</strong> Across the whole batch the baseline
+&quot;recovered&quot; {_rs(cmp_.baseline.recovered_paise)} against ReclaimAgent's
+{_rs(metrics.recovered_paise)}. The difference is not skill. On the
+{cmp_.refused_case_count} cases the compliance layer terminally refused &mdash; revoked or
+inactive mandates, debits with no pre-debit notification on record, amounts above the
+configured AFA threshold, authorisations past the network retry ceiling &mdash; the baseline
+debited anyway and took {_rs(cmp_.baseline_value_from_refused_paise)} across
+{cmp_.baseline_attempts_on_refused_cases} attempts that this system had already refused to
+make. That money is not a win, and it is reported here rather than netted away. The
+like-for-like row above is the fair comparison.</p>
+
+"""
+
+
 def _worked_example(events: list[AuditEvent], case_id: str, title: str, why: str) -> str:
     chain = [e for e in events if e.case_id == case_id]
     if not chain:
@@ -383,8 +469,9 @@ def build_report(run_id: str, out_dir: Path, config: AppConfig) -> str:
     baseline_metrics = (
         compute_metrics(baseline_events, "naive_retry_3x") if baseline_events else metrics
     )
+    has_baseline = bool(baseline_events)
     cmp_ = build_comparison(events, baseline_events or events)
-    queue = [r for r in read_escalations(out_dir / "escalations.jsonl") if r.run_id == run_id]
+    queue = read_run_escalations(out_dir, run_id)
     benchmark = read_benchmark(out_dir / "benchmark.json")
     ablation = read_ablation(out_dir / "ablation.json")
 
@@ -444,49 +531,12 @@ data was used. The rupee figures below measure the behaviour of the policy engin
 that model. They are not production recovery results and must not be quoted as such.
 </div>
 
-{_hero(cmp_, metrics)}
+{_hero(cmp_, metrics, has_baseline)}
 
-<h2>The headline, and its caveat</h2>
-<p>Against the naive baseline &mdash; retry every failed transaction three times at 24-hour
-intervals regardless of root cause &mdash; over the identical batch, the identical seed and
-the identical outcome simulator:</p>
-<div class="scroll"><table>
-<thead><tr><th>Comparison</th><th>ReclaimAgent</th><th>Naive 3&times;</th><th>Delta</th></tr></thead>
-<tbody>
-<tr><td>Recovered, cases both strategies were permitted to work
-    ({cmp_.treatment_like_for_like.cases} cases)</td>
-  <td>{_rs(cmp_.treatment_like_for_like.recovered_paise)}</td>
-  <td>{_rs(cmp_.baseline_like_for_like.recovered_paise)}</td>
-  <td class="{"pos" if cmp_.like_for_like_delta_paise >= 0 else "neg"}">
-    {"+" if cmp_.like_for_like_delta_paise >= 0 else ""}{_rs(cmp_.like_for_like_delta_paise)}
-    ({cmp_.like_for_like_delta_pct:+.1%})</td></tr>
-<tr><td>Charge attempts spent to get there</td>
-  <td>{cmp_.treatment_like_for_like.charge_attempts:,}</td>
-  <td>{cmp_.baseline_like_for_like.charge_attempts:,}</td>
-  <td class="pos">{cmp_.attempt_delta:+,} ({cmp_.attempt_delta_pct:+.0%})</td></tr>
-<tr><td>Hard-stop cases retried</td>
-  <td class="pos">0</td>
-  <td class="neg">{cmp_.baseline_attempts_on_hard_stop_cases} attempts</td>
-  <td>&mdash;</td></tr>
-<tr><td>Unclassified cases retried</td>
-  <td class="pos">0</td>
-  <td class="neg">{cmp_.baseline_attempts_on_unknown_cases} attempts</td>
-  <td>&mdash;</td></tr>
-</tbody></table></div>
-
-<p><strong>The caveat, stated plainly.</strong> Across the whole batch the baseline
-&quot;recovered&quot; {_rs(cmp_.baseline.recovered_paise)} against ReclaimAgent's
-{_rs(metrics.recovered_paise)}. The difference is not skill. On the
-{cmp_.refused_case_count} cases the compliance layer terminally refused &mdash; revoked or
-inactive mandates, debits with no pre-debit notification on record, amounts above the
-configured AFA threshold, authorisations past the network retry ceiling &mdash; the baseline
-debited anyway and took {_rs(cmp_.baseline_value_from_refused_paise)} across
-{cmp_.baseline_attempts_on_refused_cases} attempts that this system had already refused to
-make. That money is not a win, and it is reported here rather than netted away. The
-like-for-like row above is the fair comparison.</p>
+{_comparison_section(cmp_, metrics, has_baseline, run_id)}
 
 <h2>Recovery by root cause</h2>
-{_category_table(metrics, baseline_metrics)}
+{_category_table(metrics, baseline_metrics, has_baseline)}
 
 <h2>Stopping rules that fired</h2>
 <p>Every terminal state in the audit log names the rule that produced it, so

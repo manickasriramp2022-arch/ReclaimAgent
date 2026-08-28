@@ -81,12 +81,41 @@ class EscalationBuilder:
         return [r.model_copy(update={"priority_rank": i}) for i, r in enumerate(ordered, start=1)]
 
 
-def write_escalations(records: list[EscalationRecord], path: Path) -> Path:
+SHARED_QUEUE = "escalations.jsonl"
+
+
+def queue_path_for_run(out_dir: Path, run_id: str) -> Path:
+    return out_dir / f"escalations_{run_id}.jsonl"
+
+
+def _dump(records: list[EscalationRecord], path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as fh:
         for rec in records:
             fh.write(json.dumps(rec.model_dump(mode="json"), sort_keys=True) + "\n")
     return path
+
+
+def write_escalations(records: list[EscalationRecord], path: Path) -> Path:
+    """Write one queue file. Prefer `write_run_escalations` for a real run."""
+    return _dump(records, path)
+
+
+def write_run_escalations(records: list[EscalationRecord], out_dir: Path, run_id: str) -> Path:
+    """Write the queue twice, on purpose.
+
+    `out/escalations.jsonl` is the working queue: the file a human opens, always
+    holding the most recent run. `out/escalations_<run_id>.jsonl` is that run's
+    permanent copy.
+
+    Without the second file, running a new batch silently destroyed the previous
+    run's queue, which made `verify-audit` fail on the older run and `queue
+    --run <old_id>` return nothing. An audit trail that is append-only and
+    permanent is worth little if the human work list it produced is not.
+    """
+    per_run = _dump(records, queue_path_for_run(out_dir, run_id))
+    _dump(records, out_dir / SHARED_QUEUE)
+    return per_run
 
 
 def read_escalations(path: Path) -> list[EscalationRecord]:
@@ -99,6 +128,17 @@ def read_escalations(path: Path) -> list[EscalationRecord]:
             if line:
                 out.append(EscalationRecord.model_validate(json.loads(line)))
     return out
+
+
+def read_run_escalations(out_dir: Path, run_id: str) -> list[EscalationRecord]:
+    """A run's queue, preferring its permanent copy over the shared working file.
+
+    The fallback keeps queues written before per-run files existed readable.
+    """
+    per_run = queue_path_for_run(out_dir, run_id)
+    if per_run.is_file():
+        return read_escalations(per_run)
+    return [r for r in read_escalations(out_dir / SHARED_QUEUE) if r.run_id == run_id]
 
 
 def chain_from_events(events: list[AuditEvent], case_id: str) -> list[AuditEvent]:

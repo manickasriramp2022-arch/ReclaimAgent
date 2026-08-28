@@ -362,3 +362,67 @@ def test_repository_ships_no_secrets() -> None:
     assert "ANTHROPIC_API_KEY" in example
     assert "sk-ant-REPLACE_ME" in example
     assert shutil.which  # keeps the import meaningful under lint
+
+
+# ---------------------------------------------------------------------------
+# A run's artefacts must survive a later run
+# ---------------------------------------------------------------------------
+def test_a_later_run_does_not_destroy_an_earlier_run_s_queue(
+    config: AppConfig, run_dir: Path, tmp_path: Path
+) -> None:
+    """Regression. The audit log is append-only and permanent, but the
+    escalation queue was written to one shared path, so running a second batch
+    silently destroyed the first run's human work list. `verify-audit` then
+    failed on the older run and `queue --run <old_id>` returned nothing."""
+    from reclaim.escalation import queue_path_for_run, read_run_escalations
+
+    first = build_run(config, generate_batch(11, 60, config), run_dir, tmp_path, seed=11).execute()
+    second = build_run(config, generate_batch(12, 60, config), run_dir, tmp_path, seed=12).execute()
+    assert first.run_id != second.run_id
+    assert first.escalations and second.escalations
+
+    recovered = read_run_escalations(run_dir, first.run_id)
+    assert [r.case_id for r in recovered] == [r.case_id for r in first.escalations]
+    assert all(r.run_id == first.run_id for r in recovered)
+
+    still_there = read_run_escalations(run_dir, second.run_id)
+    assert [r.case_id for r in still_there] == [r.case_id for r in second.escalations]
+
+    assert queue_path_for_run(run_dir, first.run_id).is_file()
+    assert queue_path_for_run(run_dir, second.run_id).is_file()
+
+
+def test_the_shared_queue_file_still_holds_the_latest_run(
+    config: AppConfig, run_dir: Path, tmp_path: Path
+) -> None:
+    """The brief asks for out/escalations.jsonl, and a human opening it should
+    find the most recent run's work, not an archive of every run."""
+    from reclaim.escalation import SHARED_QUEUE, read_escalations
+
+    build_run(config, generate_batch(11, 60, config), run_dir, tmp_path, seed=11).execute()
+    second = build_run(config, generate_batch(12, 60, config), run_dir, tmp_path, seed=12).execute()
+
+    shared = read_escalations(run_dir / SHARED_QUEUE)
+    assert {r.run_id for r in shared} == {second.run_id}
+    assert [r.case_id for r in shared] == [r.case_id for r in second.escalations]
+
+
+def test_verify_audit_still_passes_on_an_earlier_run(
+    config: AppConfig, run_dir: Path, tmp_path: Path
+) -> None:
+    from reclaim.baseline import run_baseline
+    from reclaim.classify import Classifier
+    from reclaim.metrics import compute_metrics, write_metrics
+    from reclaim.verify import metrics_path
+
+    records = generate_batch(11, 60, config)
+    first = build_run(config, records, run_dir, tmp_path, seed=11).execute()
+    run_baseline(config, records, 11, Classifier(config, llm_client=None), first.run_id, run_dir)
+    write_metrics(
+        compute_metrics(first.events, "reclaimagent"), metrics_path(first.run_id, run_dir)
+    )
+
+    build_run(config, generate_batch(12, 60, config), run_dir, tmp_path, seed=12).execute()
+
+    result = verify_run(first.run_id, run_dir)
+    assert result.ok, result.render()

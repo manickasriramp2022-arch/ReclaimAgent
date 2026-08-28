@@ -31,7 +31,7 @@ from .audit import AuditLog, audit_path
 from .classify import Classifier
 from .compliance import CaseComplianceState, ComplianceEngine, Gate
 from .config import AppConfig
-from .escalation import EscalationBuilder, write_escalations
+from .escalation import EscalationBuilder, write_run_escalations
 from .models import (
     Action,
     Actor,
@@ -195,7 +195,7 @@ class RecoveryRun:
         self.classifier.flush()
 
         self.escalations = self.escalation_builder.rank(self.escalations)
-        escalation_file = write_escalations(self.escalations, self.out_dir / "escalations.jsonl")
+        escalation_file = write_run_escalations(self.escalations, self.out_dir, self.run_id)
         manifest = RunManifest(
             run_id=self.run_id,
             baseline_run_id=f"{self.run_id}-baseline",

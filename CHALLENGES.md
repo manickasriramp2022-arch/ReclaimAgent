@@ -270,7 +270,39 @@ of the pipeline, not that the prose has a particular shape; a parser would have 
 prose edits fight the tool. The negative case is tested by mutating one figure in a generated
 document and asserting the check fails on exactly that figure.
 
-## 12. Test fixtures that were quietly writing to the project's output directory
+## 12. Two defects that only an adversarial read of the finished work found
+
+With the submission complete, CI green and every claim validated across seeds, I read the
+diff back looking for things a reviewer would hit. Two came out, neither of which any
+existing test covered, and both of which would have been embarrassing to be shown.
+
+**The escalation queue was not durable.** The audit log is append-only and permanent, but the
+human work list it produces was written to one shared path, `out/escalations.jsonl`. Running a
+second batch overwrote it. `verify-audit --run <older_id>` then failed with "queue has 0
+records, log has 34 ESCALATED events", and `queue --run <older_id>` showed an empty queue for
+a run that had escalated 34 cases. Reproduced by running two batches and verifying the first.
+Fixed by writing the queue twice: the shared file stays as the working list the brief asks
+for, and `out/escalations_<run_id>.jsonl` is that run's permanent copy, which the verifier,
+the CLI and the report all prefer. Three regression tests; two of them fail without the fix,
+which I checked by reverting it.
+
+**The report manufactured a comparison it did not have.** With the baseline log missing, the
+report fell back to `build_comparison(events, baseline_events or events)` and compared the run
+against itself. The result was not an error or a blank: it was a confident "+₹0.00" delta
+card, a baseline column of zeroes in the per-category table, and no indication anywhere that
+the baseline was absent. A reader cannot distinguish that from a genuine measurement of no
+improvement. On a page whose whole purpose is measured claims, inventing a number from a
+missing file is the worst possible failure mode. The report now says "not measured", states
+that it is making no claim, and drops the comparison columns; a test asserts the string
+"+₹0.00" never appears in a baseline-less report.
+
+**What I take from these.** Both are the same shape of mistake: a fallback that produces
+plausible output instead of an honest absence. `or events` and a single shared filename are
+each one character's worth of convenience that silently trades correctness for never having
+to handle a missing case. Neither showed up in 168 tests, a 30-seed sweep, an ablation, or
+green CI, because every one of those exercised the happy path where both files exist.
+
+## 13. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

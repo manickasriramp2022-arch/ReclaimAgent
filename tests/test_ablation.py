@@ -237,3 +237,47 @@ def test_report_is_valid_without_an_ablation(
     html = build_report(result.run_id, run_dir, config)
     assert "No ablation on record" in html
     assert tempfile  # keeps the import meaningful under lint
+
+
+# ---------------------------------------------------------------------------
+# The report must not manufacture a comparison it does not have
+# ---------------------------------------------------------------------------
+def test_report_states_plainly_when_there_is_no_baseline(
+    config: AppConfig, batch: list, run_dir: Path, tmp_path: Path
+) -> None:
+    """Regression. With the baseline log absent the report compared the run
+    against itself and rendered a +0.00 delta, which reads as a measured result
+    and is not one."""
+    from helpers import build_run
+    from reclaim.report import build_report
+
+    result = build_run(config, batch, run_dir, tmp_path).execute()
+    assert not (run_dir / f"audit_{result.run_id}-baseline.jsonl").exists()
+
+    html = build_report(result.run_id, run_dir, config)
+    assert "not measured" in html
+    assert "no claim" in html
+    assert "+&#8377;0.00" not in html, "a zero delta must never be manufactured from a missing file"
+    assert "The headline, and its caveat" not in html
+    assert "Baseline recovered" not in html, "baseline columns are a self-comparison here"
+    # Everything derived from the treatment log alone must still be present.
+    assert "Recovery by root cause" in html
+    assert "Stopping rules that fired" in html
+    assert "Human escalation queue" in html
+
+
+def test_report_makes_the_comparison_when_the_baseline_exists(
+    config: AppConfig, batch: list, run_dir: Path, tmp_path: Path
+) -> None:
+    from helpers import build_run
+    from reclaim.baseline import run_baseline
+    from reclaim.classify import Classifier
+    from reclaim.report import build_report
+
+    result = build_run(config, batch, run_dir, tmp_path).execute()
+    run_baseline(config, batch, 7, Classifier(config, llm_client=None), result.run_id, run_dir)
+
+    html = build_report(result.run_id, run_dir, config)
+    assert "The headline, and its caveat" in html
+    assert "Baseline recovered" in html
+    assert "not measured" not in html

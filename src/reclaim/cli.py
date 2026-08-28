@@ -33,7 +33,7 @@ from .classify import AnthropicClient, Classifier, LlmClient
 from .config import AppConfig, load_config
 from .docscheck import verify_docs
 from .engine import RecoveryRun, infer_seed
-from .escalation import read_escalations
+from .escalation import read_run_escalations
 from .generate import (
     DEFAULT_BATCH_SIZE,
     MIN_BATCH_SIZE,
@@ -239,9 +239,7 @@ def cmd_verify_docs(args: argparse.Namespace) -> int:
 
 def cmd_queue(args: argparse.Namespace) -> int:
     run_id = _resolve_run(args.run, args.out_dir)
-    records = [
-        e for e in read_escalations(args.out_dir / "escalations.jsonl") if e.run_id == run_id
-    ]
+    records = read_run_escalations(args.out_dir, run_id)
     print(f"escalation queue for run {run_id}: {len(records)} cases")
     total = sum(r.amount_at_risk_paise for r in records)
     print(f"value sitting in the queue: Rs {total / 100:,.2f}")

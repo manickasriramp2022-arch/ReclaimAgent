@@ -302,7 +302,7 @@ enters the recovery-rate denominator.
 | 3 | Recovery policy engine | `policy.py`, `config/policies.yaml` | One declarative plan per category. No per-category branching in Python. Every stop names a rule. |
 | 4 | Compliance layer | `compliance.py`, `config/compliance.yaml` | Named, sourced, editable constants. The engine refuses to act when a precondition is unmet and logs the refusal as its own outcome. |
 | 5 | Outcome simulator | `simulate.py`, `config/simulation.yaml` | Seeded per case and attempt. Deliberately invisible to the policy engine, which acts on its own separate priors. |
-| 6 | Escalation queue | `escalation.py` | Exhausted, refused and `UNKNOWN` cases reach a human with the full decision chain, the rule that fired, a recommended action and a priority rank. |
+| 6 | Escalation queue | `escalation.py` | Exhausted, refused and `UNKNOWN` cases reach a human with the full decision chain, the rule that fired, a recommended action and a priority rank. Written twice: `out/escalations.jsonl` is the working list a human opens, `out/escalations_<run_id>.jsonl` is that run's permanent copy. |
 | 7 | Audit trail | `audit.py` | Append-only JSONL, monotonic sequence, SHA-256 hash chain. Editing or deleting an event is detectable. |
 | 8 | Metrics | `metrics.py` | Computed from the log, never from memory. `verify-audit` re-derives every published number and diffs it. |
 | 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `ablate`, `verify-docs`, `queue` and `events`. |
@@ -367,7 +367,7 @@ make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-168 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+173 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading
