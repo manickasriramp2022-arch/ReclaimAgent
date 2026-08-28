@@ -1,0 +1,120 @@
+# ReclaimAgent - outcome simulator.
+#
+# ############################################################################
+# EVERY OUTCOME PRODUCED FROM THIS FILE IS SIMULATED.
+# No payment is ever presented to a gateway. These numbers are a plausible
+# model, not measured production performance, and must never be quoted as
+# such. See the "Simulated outcomes" section of README.md.
+# ############################################################################
+#
+# Success probability for a charge attempt is:
+#
+#   p = base[category]
+#       * decay[category] ** (attempt_index - 1)
+#       * time_factor(category, hours_since_original_failure)
+#       * (1 + contact_uplift, if a nudge on this case has landed)
+#
+# clamped to [floor, ceiling]. The draw is made from a per-case RNG seeded
+# from (batch_seed, case_id, attempt_index), so a rerun with the same seed
+# reproduces every outcome exactly.
+
+schema_version: 1
+
+clamp:
+  floor: 0.0
+  ceiling: 0.93
+
+categories:
+
+  INSUFFICIENT_FUNDS:
+    base: 0.155
+    decay: 0.84
+    # Balance-driven failures recover as money arrives. The curve rises across
+    # the first week and plateaus; the bump near a salary-credit interval is
+    # modelled explicitly rather than being buried in the base rate.
+    time_factor:
+      kind: piecewise
+      points:
+        - {hours: 0,   factor: 0.45}
+        - {hours: 12,  factor: 0.80}
+        - {hours: 48,  factor: 1.35}
+        - {hours: 96,  factor: 1.85}
+        - {hours: 168, factor: 2.05}
+        - {hours: 336, factor: 1.70}
+    payday_bonus:
+      # Applied when the attempt lands on one of these days of the month.
+      days_of_month: [1, 2, 3, 28, 29, 30, 31]
+      factor: 1.30
+
+  ISSUER_SOFT_DECLINE:
+    base: 0.21
+    decay: 0.50
+    # Soft declines either clear quickly or do not clear at all.
+    time_factor:
+      kind: piecewise
+      points:
+        - {hours: 0,   factor: 1.00}
+        - {hours: 6,   factor: 1.05}
+        - {hours: 48,  factor: 0.85}
+        - {hours: 168, factor: 0.55}
+        - {hours: 336, factor: 0.40}
+
+  TECHNICAL_ERROR:
+    base: 0.55
+    decay: 0.52
+    # Transient upstream faults clear fast; if the first two retries fail the
+    # problem is probably not transient.
+    time_factor:
+      kind: piecewise
+      points:
+        - {hours: 0,   factor: 0.70}
+        - {hours: 1,   factor: 1.05}
+        - {hours: 6,   factor: 1.10}
+        - {hours: 48,  factor: 0.90}
+        - {hours: 336, factor: 0.75}
+
+  EXPIRED_CARD:
+    # A re-presentment against an expired instrument only succeeds if the
+    # customer actually replaced it, which is why the base rate is low and the
+    # contact uplift dominates.
+    base: 0.05
+    decay: 0.60
+    time_factor:
+      kind: piecewise
+      points:
+        - {hours: 0,   factor: 0.20}
+        - {hours: 72,  factor: 1.00}
+        - {hours: 168, factor: 1.40}
+        - {hours: 336, factor: 1.50}
+
+  HARD_DECLINE:
+    base: 0.0
+    decay: 1.0
+    time_factor: {kind: constant, factor: 0.0}
+
+  MANDATE_REVOKED:
+    base: 0.0
+    decay: 1.0
+    time_factor: {kind: constant, factor: 0.0}
+
+  UNKNOWN:
+    base: 0.0
+    decay: 1.0
+    time_factor: {kind: constant, factor: 0.0}
+
+# Probability that a delivered nudge causes the customer to act (top up, fix
+# the instrument, re-authorise). Acting applies the uplift below to every
+# subsequent charge attempt on that case.
+contact_response:
+  dunning_email: 0.14
+  sms: 0.21
+  update_payment_method_link: 0.38
+
+contact_uplift:
+  # Multiplier on p for a case where the customer has acted on a nudge.
+  default: 1.6
+  # EXPIRED_CARD is the case where customer action is the whole recovery path,
+  # so the uplift is much larger there.
+  by_category:
+    EXPIRED_CARD: 7.0
+    INSUFFICIENT_FUNDS: 1.9

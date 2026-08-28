@@ -1,0 +1,58 @@
+# ReclaimAgent - deterministic decline-code rule layer.
+#
+# The classifier tries these in order: exact code match, then regex on the
+# code, then keyword match on the decline description. The first rule that
+# matches wins and its `id` is written into the audit event, so every
+# rule-layer classification is traceable to one line of this file.
+#
+# Only codes that no rule matches reach the LLM fallback. With --no-llm they
+# become UNKNOWN and escalate; they are never silently retried.
+
+schema_version: 1
+
+exact:
+  NF_INSUFFICIENT_FUNDS:   {category: INSUFFICIENT_FUNDS,  rule_id: exact.nf_insufficient_funds}
+  NF_DAILY_LIMIT_EXCEEDED: {category: INSUFFICIENT_FUNDS,  rule_id: exact.nf_daily_limit}
+  SD_ISSUER_UNAVAILABLE:   {category: ISSUER_SOFT_DECLINE, rule_id: exact.sd_issuer_unavailable}
+  SD_DO_NOT_HONOUR:        {category: ISSUER_SOFT_DECLINE, rule_id: exact.sd_do_not_honour}
+  SD_RISK_HOLD:            {category: ISSUER_SOFT_DECLINE, rule_id: exact.sd_risk_hold}
+  TE_GATEWAY_TIMEOUT:      {category: TECHNICAL_ERROR,     rule_id: exact.te_gateway_timeout}
+  TE_UPSTREAM_5XX:         {category: TECHNICAL_ERROR,     rule_id: exact.te_upstream_5xx}
+  EC_CARD_EXPIRED:         {category: EXPIRED_CARD,        rule_id: exact.ec_card_expired}
+  EC_CARD_REISSUED:        {category: EXPIRED_CARD,        rule_id: exact.ec_card_reissued}
+  HD_STOLEN_CARD:          {category: HARD_DECLINE,        rule_id: exact.hd_stolen_card}
+  HD_ACCOUNT_CLOSED:       {category: HARD_DECLINE,        rule_id: exact.hd_account_closed}
+  HD_FRAUD_SUSPECTED:      {category: HARD_DECLINE,        rule_id: exact.hd_fraud_suspected}
+  MR_MANDATE_REVOKED:      {category: MANDATE_REVOKED,     rule_id: exact.mr_mandate_revoked}
+  MR_MANDATE_EXPIRED:      {category: MANDATE_REVOKED,     rule_id: exact.mr_mandate_expired}
+
+# Applied in listed order when no exact match exists. Anchored, case-sensitive.
+patterns:
+  - {regex: "^NF_",  category: INSUFFICIENT_FUNDS,  rule_id: pattern.nf_prefix}
+  - {regex: "^SD_",  category: ISSUER_SOFT_DECLINE, rule_id: pattern.sd_prefix}
+  - {regex: "^TE_",  category: TECHNICAL_ERROR,     rule_id: pattern.te_prefix}
+  - {regex: "^EC_",  category: EXPIRED_CARD,        rule_id: pattern.ec_prefix}
+  - {regex: "^HD_",  category: HARD_DECLINE,        rule_id: pattern.hd_prefix}
+  - {regex: "^MR_",  category: MANDATE_REVOKED,     rule_id: pattern.mr_prefix}
+
+# Last deterministic resort before the LLM. Matched case-insensitively against
+# the decline description. Kept conservative: a keyword rule that guesses wrong
+# is worse than an escalation.
+keywords:
+  - {any_of: ["insufficient fund", "low balance", "not enough"], category: INSUFFICIENT_FUNDS,  rule_id: keyword.insufficient}
+  - {any_of: ["expired", "reissued", "card replaced"],           category: EXPIRED_CARD,        rule_id: keyword.expired}
+  - {any_of: ["stolen", "lost card", "fraud", "account closed"], category: HARD_DECLINE,        rule_id: keyword.hard}
+  - {any_of: ["mandate revoked", "mandate cancelled", "umn revoked"], category: MANDATE_REVOKED, rule_id: keyword.mandate}
+  - {any_of: ["timeout", "timed out", "internal error", "5xx", "unavailable"], category: TECHNICAL_ERROR, rule_id: keyword.technical}
+
+# LLM fallback settings.
+llm_fallback:
+  # A model answer below this confidence is discarded and the case becomes
+  # UNKNOWN, which escalates to a human.
+  min_confidence: 0.75
+  model: "claude-sonnet-5"
+  max_tokens: 300
+  # Cache key is the decline code, so a 250-case batch makes at most one call
+  # per distinct unmapped code.
+  cache_enabled: true
+  cache_path: "out/llm_cache.json"

@@ -1,0 +1,132 @@
+# ReclaimAgent - synthetic batch generator configuration.
+#
+# All records produced from this file are SYNTHETIC and marked environment=test.
+# Decline codes below are illustrative names modelled on the shape of common
+# gateway decline taxonomies. They are NOT copied from any live gateway's code
+# list and must be re-mapped before use against a real gateway.
+
+currency: INR
+environment: test
+
+# Amounts are drawn per band, in paise. Weights need not sum to 1; they are
+# normalised. Skewed towards small-ticket subscription debits.
+amount_bands:
+  - {name: micro,   weight: 0.34, min_paise: 4900,     max_paise: 29900}
+  - {name: small,   weight: 0.38, min_paise: 29900,    max_paise: 149900}
+  - {name: mid,     weight: 0.21, min_paise: 149900,   max_paise: 999900}
+  - {name: large,   weight: 0.07, min_paise: 999900,   max_paise: 7500000}
+
+# Payment method mix across the failed-transaction population.
+payment_method_mix:
+  card: 0.44
+  upi: 0.31
+  e_mandate: 0.17
+  netbanking: 0.08
+
+# THE FAILURE MIX. This is the single table that controls batch composition.
+# `weight` is the share of the batch. Insufficient funds and soft issuer
+# declines dominate; hard declines and revoked mandates are a deliberate
+# minority, matching the observed shape of recurring-payment failure data.
+decline_mix:
+  - code: NF_INSUFFICIENT_FUNDS
+    description: "Insufficient funds in customer account"
+    weight: 0.285
+    methods: [card, upi, e_mandate, netbanking]
+  - code: NF_DAILY_LIMIT_EXCEEDED
+    description: "Customer account debit limit exceeded for the day"
+    weight: 0.055
+    methods: [upi, netbanking, e_mandate]
+  - code: SD_ISSUER_UNAVAILABLE
+    description: "Issuing bank did not respond within the authorisation window"
+    weight: 0.135
+    methods: [card, upi, netbanking, e_mandate]
+  - code: SD_DO_NOT_HONOUR
+    description: "Issuer declined without a specific reason (do not honour)"
+    weight: 0.125
+    methods: [card, e_mandate]
+  - code: SD_RISK_HOLD
+    description: "Issuer risk system held the transaction for review"
+    weight: 0.045
+    methods: [card, upi]
+  - code: TE_GATEWAY_TIMEOUT
+    description: "Gateway timed out while awaiting the acquirer response"
+    weight: 0.070
+    methods: [card, upi, netbanking, e_mandate]
+  - code: TE_UPSTREAM_5XX
+    description: "Upstream processor returned an internal error"
+    weight: 0.040
+    methods: [card, upi, netbanking]
+  - code: EC_CARD_EXPIRED
+    description: "Card has expired"
+    weight: 0.058
+    methods: [card, e_mandate]
+  - code: EC_CARD_REISSUED
+    description: "Card number no longer valid, card was reissued"
+    weight: 0.025
+    methods: [card, e_mandate]
+  - code: HD_STOLEN_CARD
+    description: "Card reported lost or stolen, do not retry"
+    weight: 0.022
+    methods: [card]
+  - code: HD_ACCOUNT_CLOSED
+    description: "Customer account closed"
+    weight: 0.026
+    methods: [card, netbanking, upi, e_mandate]
+  - code: HD_FRAUD_SUSPECTED
+    description: "Issuer flagged the transaction as fraudulent"
+    weight: 0.014
+    methods: [card, upi]
+  - code: MR_MANDATE_REVOKED
+    description: "Customer revoked the e-mandate"
+    weight: 0.038
+    methods: [e_mandate]
+  - code: MR_MANDATE_EXPIRED
+    description: "E-mandate validity period has ended"
+    weight: 0.020
+    methods: [e_mandate]
+  # Codes the rule layer deliberately cannot resolve. These exercise the
+  # LLM fallback (or, with --no-llm, the UNKNOWN -> escalation path).
+  - code: XX_UNSPECIFIED_1904
+    description: "Processor returned an unmapped response code 1904"
+    weight: 0.024
+    methods: [card, upi, netbanking]
+  - code: XX_BANK_MESSAGE
+    description: "Bank returned a free-text message with no mapped code"
+    weight: 0.018
+    methods: [netbanking, e_mandate]
+
+# Contact channel availability per customer (independent draws).
+contact_channel_availability:
+  email: 0.93
+  sms: 0.86
+  whatsapp: 0.41
+
+# Probability a customer has recorded consent for outbound dunning contact.
+contact_consent_probability: 0.88
+
+# Prior attempt count distribution (attempts already spent before this batch).
+prior_attempt_distribution:
+  0: 0.62
+  1: 0.24
+  2: 0.10
+  3: 0.04
+
+# E-mandate specific state mix (only applied to e_mandate records).
+mandate_status_mix:
+  active: 0.86
+  paused: 0.05
+  revoked: 0.06
+  expired: 0.03
+
+# Attempt timestamps are spread uniformly across this many hours ending at the
+# batch anchor time. The anchor is fixed (not wall-clock) so batches are
+# reproducible byte-for-byte from the seed alone. The window is short because a
+# recovery agent works recent failures: a wide window would smear every case's
+# "hours since original failure" and wash out the timing signal the policies
+# are built to exploit.
+attempt_window_hours: 18
+batch_anchor_utc: "2026-03-02T00:00:00Z"
+
+# Pre-debit notification bookkeeping for e-mandate records: share of e-mandate
+# cases where a compliant pre-debit notification was already sent.
+pre_debit_notice_sent_probability: 0.72
