@@ -368,7 +368,24 @@ the gate catches a stale number; it does not catch a partial edit that fixed one
 missed another. The README says this in those words, because an overstated claim about a
 verification tool is precisely the failure the tool exists to prevent.
 
-## 32. Defaults chosen where the brief was silent
+## 32. An unrecorded cost is unknown, not zero
+
+**Decision.** `RunMetrics.action_cost_recorded` is false when the log contains billable
+actions carrying no cost stamp. The CLI then prints "not recorded in this log, so no net
+figure is claimed" and the report renders "not recorded" instead of a rupee value.
+
+**Why.** Summing a missing field to zero published `cost of acting: Rs 0.00` and a net figure
+equal to the gross one. An audit log written before cost tracking existed is indistinguishable
+in that presentation from a run that genuinely cost nothing, which is a fabricated measurement
+rather than a missing one. Found by deliberately grepping for this defect shape after hitting
+it three times; see `CHALLENGES.md` §14.
+
+**Design note.** The alternative was to make the field required and refuse to read older logs.
+That trades a false number for a broken tool, which is worse: an old audit log is still a
+valid record of what happened, it simply does not know what the actions cost. Saying so is
+the correct behaviour.
+
+## 33. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

@@ -380,7 +380,7 @@ make verify-docs # check every figure in README.md against the run on disk
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-177 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+181 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

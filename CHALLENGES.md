@@ -341,7 +341,45 @@ of 34; a figure quoted in several places is caught only when every occurrence is
 unverifiable figures are excluded rather than counted, with a pointer to what does cover them.
 Weaker, and true.
 
-## 14. Test fixtures that were quietly writing to the project's output directory
+## 14. The same mistake, four times, and the sweep that found the fourth
+
+By the third defect a pattern was obvious enough to search for deliberately: **a fallback
+that produces plausible output instead of an honest absence.** Each one passed CI, and none
+was caught by 177 tests, a 30-seed sweep or an ablation, because all of those exercise the
+path where the data is present.
+
+| # | Mechanism | What it produced instead of "I don't know" |
+|---|---|---|
+| 1 | One shared escalation file | An empty queue for a run that escalated 34 cases |
+| 2 | `build_comparison(events, baseline or events)` | A confident `+Rs 0.00` delta from a missing file |
+| 3 | A test guard that skips | A green CI run that verified nothing |
+| 4 | `inputs.get("action_cost_paise", 0)` | `cost of acting: Rs 0.00`, net equal to gross |
+
+The fourth came from grepping the codebase for the shape rather than waiting to trip over it:
+`or` fallbacks, `.get(x, 0)` on values that reach a published number, and exception handlers
+that swallow. It found `metrics.py` summing a missing cost field to zero. An audit log written
+before cost tracking existed therefore reported a cost of zero and a net figure identical to
+the gross one, with nothing distinguishing that from a genuinely cheap run. Reproduced by
+stripping the cost stamps out of a real log and recomputing.
+
+`RunMetrics` now carries `action_cost_recorded`, false when the log holds billable actions
+with no cost stamp. The CLI prints "not recorded in this log, so no net figure is claimed" and
+the report shows "not recorded" instead of a rupee value. Three tests, including one asserting
+`0.00` never appears in that line.
+
+The same sweep exposed a config-contract gap: `plan` defaults to an empty list when the key
+is missing, so a typo in `policies.yaml` would produce a recoverable category that silently
+does nothing and terminates as `plan_exhausted`. A test now asserts every recoverable policy
+has a plan, a positive attempt cap and at least one channel, and that every non-recoverable
+one has none of those.
+
+**The lesson, stated for the form field.** Every one of these was a single expression written
+to avoid handling a case that "cannot happen": a default argument, an `or`, a skip. In a
+system whose entire claim is that its numbers are measured, the cost of that convenience is
+not a crash, which would be honest, but a number that looks measured and is not. Searching
+for the shape found more instances than waiting for failures did.
+
+## 15. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

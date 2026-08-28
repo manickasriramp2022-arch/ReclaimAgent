@@ -108,6 +108,22 @@ def _hero(cmp_: ComparisonReport, metrics: RunMetrics, has_baseline: bool) -> st
             "claims no comparison</div>"
         )
         attempt_note = ""
+
+    if metrics.action_cost_recorded:
+        cost_value = f'<div class="value">{_rs(metrics.action_cost_paise)}</div>'
+        cost_note = (
+            '<div class="note">summed from the cost stamped on every attempt and contact '
+            f"event; net recovery {_rs(metrics.net_recovered_paise)}</div>"
+        )
+    else:
+        # An older log carries no cost stamps. That makes the cost unknown, not
+        # zero, and a confident 0.00 here would read as a measurement.
+        cost_value = '<div class="value warnc">not recorded</div>'
+        cost_note = (
+            '<div class="note">this audit log predates per-action cost tracking, so no '
+            "cost or net figure is claimed for it</div>"
+        )
+
     return f"""
 <div class="hero">
   <div class="card">
@@ -129,9 +145,8 @@ def _hero(cmp_: ComparisonReport, metrics: RunMetrics, has_baseline: bool) -> st
   </div>
   <div class="card">
     <div class="label">Cost of acting</div>
-    <div class="value">{_rs(metrics.action_cost_paise)}</div>
-    <div class="note">summed from the cost stamped on every attempt and contact event;
-      net recovery {_rs(metrics.net_recovered_paise)}</div>
+    {cost_value}
+    {cost_note}
   </div>
   <div class="card">
     <div class="label">Hard stops honoured</div>

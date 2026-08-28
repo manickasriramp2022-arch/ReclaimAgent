@@ -254,3 +254,102 @@ def test_report_is_still_valid_without_a_sweep(
     html = build_report(result.run_id, run_dir, config)
     assert "No sensitivity sweep on record" in html
     assert "reclaim benchmark" in html
+
+
+# ---------------------------------------------------------------------------
+# An unrecorded cost is unknown, not zero
+# ---------------------------------------------------------------------------
+def _strip_cost_stamps(events: list) -> list:  # type: ignore[type-arg]
+    """What an audit log written before cost tracking existed looks like."""
+    from reclaim.models import Action as A
+
+    out = []
+    for e in events:
+        if e.action in {A.CHARGE_ATTEMPT, A.CONTACT_SENT}:
+            e = e.model_copy(
+                update={"inputs": {k: v for k, v in e.inputs.items() if k != "action_cost_paise"}}
+            )
+        out.append(e)
+    return out
+
+
+def test_a_log_without_cost_stamps_reports_unknown_not_zero(
+    config: AppConfig, batch: list[FailedTransaction], run_dir: Path, tmp_path: Path
+) -> None:
+    """Regression. Summing a missing field to 0 published "cost of acting
+    Rs 0.00" and a net figure equal to the gross one, which reads as a
+    measurement of a cheap run rather than an absence of data."""
+    result = build_run(config, batch, run_dir, tmp_path).execute()
+
+    current = compute_metrics(result.events, "x")
+    assert current.action_cost_recorded
+    assert current.action_cost_paise > 0
+
+    legacy = compute_metrics(_strip_cost_stamps(result.events), "x")
+    assert not legacy.action_cost_recorded, (
+        "a log whose billable actions carry no cost stamp must not claim a cost"
+    )
+
+
+def test_the_headline_refuses_to_state_a_net_figure_it_cannot_support(
+    config: AppConfig, batch: list[FailedTransaction], run_dir: Path, tmp_path: Path
+) -> None:
+    from reclaim.metrics import headline
+
+    result = build_run(config, batch, run_dir, tmp_path).execute()
+    legacy = compute_metrics(_strip_cost_stamps(result.events), "x")
+    line = next(line for line in headline(legacy) if "cost of acting" in line)
+    assert "not recorded" in line
+    assert "0.00" not in line, "a cost of 0.00 here would be a fabricated measurement"
+
+
+def test_the_report_says_not_recorded_rather_than_zero(
+    config: AppConfig, batch: list[FailedTransaction], run_dir: Path, tmp_path: Path
+) -> None:
+    from reclaim.audit import AuditLog
+    from reclaim.report import build_report
+
+    result = build_run(config, batch, run_dir, tmp_path).execute()
+    stripped = _strip_cost_stamps(result.events)
+
+    legacy_id = f"{result.run_id}-legacy"
+    with AuditLog(legacy_id, run_dir / f"audit_{legacy_id}.jsonl") as log:
+        for e in stripped:
+            log.append(
+                case_id=e.case_id,
+                actor=e.actor,
+                action=e.action,
+                outcome=e.outcome,
+                ts=e.ts,
+                value_paise=e.value_paise,
+                category=e.category,
+                rule=e.rule,
+                channel=e.channel,
+                attempt_no=e.attempt_no,
+                inputs=e.inputs,
+                detail=e.detail,
+            )
+
+    html = build_report(legacy_id, run_dir, config)
+    assert "not recorded" in html
+    assert "predates per-action cost tracking" in html
+
+
+# ---------------------------------------------------------------------------
+# Config contract the sweep for this defect class exposed
+# ---------------------------------------------------------------------------
+def test_a_recoverable_policy_must_actually_have_a_plan(config: AppConfig) -> None:
+    """`plan` defaults to an empty list when the key is missing, so a typo in
+    policies.yaml would produce a recoverable category that silently does
+    nothing and terminates as plan_exhausted."""
+    from reclaim.models import RootCause
+
+    for category in RootCause:
+        policy = config.policies.for_category(category)
+        if policy.recoverable:
+            assert policy.plan, f"{category} is recoverable but plans no steps"
+            assert policy.max_charge_attempts > 0
+            assert policy.allowed_channels
+        else:
+            assert not policy.plan, f"{category} is non-recoverable but plans steps"
+            assert policy.max_charge_attempts == 0

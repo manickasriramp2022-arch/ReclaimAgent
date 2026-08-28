@@ -292,8 +292,15 @@ class RunMetrics(Frozen):
     # What the recovery cost to run, summed from the action costs stamped on
     # each attempt and contact event, so it is derived from the log like
     # everything else here rather than recomputed from config at report time.
+    #
+    # `action_cost_recorded` is False when the log contains billable actions
+    # that carry no cost stamp, which is what an audit log written before cost
+    # tracking existed looks like. In that case the cost is UNKNOWN, not zero,
+    # and callers must say so rather than publishing a confident 0.00 and a net
+    # figure equal to the gross one.
     action_cost_paise: int
     net_recovered_paise: int
+    action_cost_recorded: bool = True
     hard_stop_cases: int
     hard_stop_cases_with_zero_attempts: int
     correctly_stopped_rate: float
