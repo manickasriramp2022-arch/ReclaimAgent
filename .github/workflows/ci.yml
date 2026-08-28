@@ -74,6 +74,25 @@ jobs:
           print("hard stops honoured on every seed")
           PY
 
+      - name: Ablation, what each design decision is worth
+        run: reclaim ablate --seeds 6 --size 120
+
+      - name: Hard stops must survive every ablation
+        # No amount of feature removal may produce a retry on a stolen card or
+        # a revoked mandate. Recovery deltas are reported, not gated.
+        run: |
+          python - <<'PY'
+          import json, sys, pathlib
+          report = json.loads(pathlib.Path("out/ablation.json").read_text())
+          bad = [r["variant"] for r in report["rows"] if not r["hard_stops_always_honoured"]]
+          for row in sorted(report["rows"], key=lambda r: r["recovery_vs_full_pct"]):
+              print(f"{row['variant']:<28} recovery {row['recovery_vs_full_pct']:+.1%}"
+                    f"  attempts {row['attempts_vs_full_pct']:+.1%}")
+          if bad:
+              sys.exit(f"hard stops were NOT honoured in variants: {bad}")
+          print("hard stops honoured in every ablation variant")
+          PY
+
       - name: Render the report
         run: reclaim report
 

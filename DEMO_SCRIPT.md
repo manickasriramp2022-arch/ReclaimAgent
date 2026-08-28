@@ -171,6 +171,19 @@ reclaim benchmark --seeds 30
 > invariant, so CI sweeps twelve seeds on every push and fails the build if a single one of
 > them ever retries a stolen card.
 
+*If you have 15 seconds spare, show the ablation table already in the open report instead of
+re-running it.*
+
+> And the next question is which part of the design is doing that. Disable one feature at a
+> time: root-cause routing is worth eighteen percent of recovery, timing against each cause's
+> curve another sixteen, nudges eight. Take routing and timing away and the whole advantage
+> over the naive baseline collapses from twenty-four percent to two. That's the thesis of the
+> project as a number.
+>
+> Last row: removing the cost floor changes recovery by zero. I left that in. The cost floor
+> is a spend-control rule, so it shows up in the attempts column, not the rupees column. A
+> table built to flatter the design wouldn't have that row in it.
+
 ```bash
 reclaim verify-audit
 ```

@@ -461,6 +461,48 @@ class BenchmarkReport(Frozen):
         return all(r.correctly_stopped_rate == 1.0 for r in self.rows)
 
 
+class AblationRow(Frozen):
+    """One variant of the system, measured over the same seeds as the others."""
+
+    variant: str
+    question: str
+    recovered_paise: int
+    charge_attempts: int
+    contacts_sent: int
+    action_cost_paise: int
+    mean_delta_vs_baseline_pct: float
+    recovery_vs_full_pct: float
+    attempts_vs_full_pct: float
+    hard_stops_always_honoured: bool
+
+
+class AblationReport(Frozen):
+    """What each design decision is actually worth.
+
+    The seed sweep answers "does it win?". This answers "which part of it is
+    doing the work?" by disabling one feature at a time and re-measuring over
+    the identical seeds. A feature that costs nothing to remove is a feature
+    that was not earning its place.
+    """
+
+    seeds: int
+    batch_size: int
+    config_fingerprint: str
+    rows: list[AblationRow]
+
+    @property
+    def full(self) -> AblationRow | None:
+        return next((r for r in self.rows if r.recovery_vs_full_pct == 0.0), None)
+
+    @property
+    def ranked(self) -> list[AblationRow]:
+        """Ablations ordered by how much recovery they cost, worst first."""
+        return sorted(
+            (r for r in self.rows if r.recovery_vs_full_pct != 0.0),
+            key=lambda r: r.recovery_vs_full_pct,
+        )
+
+
 class RunManifest(Frozen):
     """Non-deterministic run metadata, kept OUT of the audit log so that the
     log itself is byte-identical across runs with the same seed."""

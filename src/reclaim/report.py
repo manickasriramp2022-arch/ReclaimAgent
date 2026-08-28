@@ -12,12 +12,14 @@ import html
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .ablation import FULL_SYSTEM, read_ablation
 from .audit import read_audit
 from .benchmark import read_benchmark
 from .config import AppConfig
 from .escalation import read_escalations
 from .metrics import build_comparison, compute_metrics
 from .models import (
+    AblationReport,
     Action,
     AuditEvent,
     BenchmarkReport,
@@ -306,6 +308,41 @@ def _benchmark_section(report: BenchmarkReport | None) -> str:
 <tbody>{rows}</tbody></table></div>"""
 
 
+def _ablation_section(report: AblationReport | None) -> str:
+    if report is None or not report.rows:
+        return (
+            "<p class='sub'>No ablation on record. Run <code>reclaim ablate</code> to "
+            "measure what each design decision is worth.</p>"
+        )
+    rows = []
+    for r in report.rows:
+        is_full = r.variant == FULL_SYSTEM
+        cost_cls = "" if is_full else ("neg" if r.recovery_vs_full_pct < -0.001 else "muted")
+        cost = "reference" if is_full else f"{r.recovery_vs_full_pct:+.1%}"
+        att = "&mdash;" if is_full else f"{r.attempts_vs_full_pct:+.1%}"
+        rows.append(
+            f"""<tr>
+  <td><strong>{_esc(r.variant)}</strong>
+      <div class="m" style="color:#5b6672;font-size:12.5px">{_esc(r.question)}</div></td>
+  <td>{_rs(r.recovered_paise)}</td>
+  <td>{r.charge_attempts:,}</td>
+  <td>{r.mean_delta_vs_baseline_pct:+.1%}</td>
+  <td class="{cost_cls}"><strong>{cost}</strong></td>
+  <td>{att}</td>
+</tr>"""
+        )
+    return f"""
+<div class="scroll"><table>
+<thead><tr><th>Variant</th><th>Recovered</th><th>Attempts</th>
+<th>vs naive baseline</th><th>Recovery lost by removing it</th>
+<th>Attempts</th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table></div>
+<p class="sub">Every variant honoured hard stops on every seed:
+<strong>{all(r.hard_stops_always_honoured for r in report.rows)}</strong>.
+Measured over {report.seeds} seeds of {report.batch_size} cases each. Reproduce with
+<code>reclaim ablate --seeds {report.seeds}</code>.</p>"""
+
+
 def _worked_example(events: list[AuditEvent], case_id: str, title: str, why: str) -> str:
     chain = [e for e in events if e.case_id == case_id]
     if not chain:
@@ -349,6 +386,7 @@ def build_report(run_id: str, out_dir: Path, config: AppConfig) -> str:
     cmp_ = build_comparison(events, baseline_events or events)
     queue = [r for r in read_escalations(out_dir / "escalations.jsonl") if r.run_id == run_id]
     benchmark = read_benchmark(out_dir / "benchmark.json")
+    ablation = read_ablation(out_dir / "ablation.json")
 
     success_case, stopped_case = pick_demo_cases(run_id, out_dir)
     compliance_descriptions = {
@@ -478,6 +516,17 @@ somewhere is a different proposition from one that wins everywhere.</p>
 <p class="sub">Reproduce with <code>reclaim benchmark --seeds {benchmark.seeds if benchmark else 30}
 --size {benchmark.batch_size if benchmark else 250}</code>. Each row runs the full pipeline and
 the full baseline in a temporary directory, so a sweep never overwrites a real run's artefacts.</p>
+
+<h2>Which part of the design earns the money?</h2>
+<p>The sweep above shows the system beats the baseline. This shows why. Each row disables
+exactly one feature and re-runs everything over the identical seeds, so the
+&quot;recovery lost&quot; column is what that decision is worth.</p>
+{_ablation_section(ablation)}
+<p>The last row is the one worth reading carefully. Removing the cost floor changes recovery
+by essentially nothing and <em>increases</em> attempts. That is the correct result, not a
+disappointing one: the cost floor is a spend-control rule, not a recovery rule, and it earns
+its place in the attempts column rather than the rupees column. A table built to flatter the
+design would not have shown that.</p>
 
 <h2>Worked examples</h2>
 <p>Two cases traced through the audit log, event by event.</p>

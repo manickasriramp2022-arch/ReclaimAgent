@@ -124,9 +124,10 @@ make demo
 ```
 
 `make demo` creates a virtualenv, installs the package, generates a batch, runs the
-recovery pipeline and the naive baseline, sweeps 30 independent seeds to check the result
-is not a fluke, verifies the audit trail, renders the HTML report and opens it. It takes
-about **11 seconds** of compute after the install step.
+recovery pipeline and the naive baseline, sweeps 30 independent seeds to check the result is
+not a fluke, ablates each design decision to measure what it is worth, verifies the audit
+trail, renders the HTML report and opens it. It takes about **25 seconds** of compute after
+the install step.
 
 Or step by step:
 
@@ -136,6 +137,7 @@ make install
 reclaim generate --seed 42 --size 250       # -> data/batch_42.jsonl
 reclaim run --batch data/batch_42.jsonl     # -> out/audit_<run_id>.jsonl, escalations, metrics
 reclaim benchmark --seeds 30                # is the delta real? sweep 30 independent batches
+reclaim ablate --seeds 12                   # which design decision earns the money?
 reclaim report                              # -> out/report_<run_id>.html
 reclaim replay --case @success              # the decision chain for one recovery
 reclaim replay --case @stopped              # the decision chain for one correct refusal
@@ -228,6 +230,34 @@ The one row that is not a distribution is the last. Honouring hard stops is not 
 outcome, it is an invariant, so CI sweeps 12 seeds on every push and fails the build if a
 single one of them ever retries a stolen card or a revoked mandate.
 
+### Which part of the design earns the money?
+
+The sweep shows the system wins. `reclaim ablate` shows *why*, by disabling one feature at a
+time and re-running everything over the same 12 seeds:
+
+| Variant | Recovered | Attempts | vs baseline | Recovery lost by removing it |
+|---|---:|---:|---:|---:|
+| **full ReclaimAgent** | ₹4,922,723 | 4,356 | +23.6% | reference |
+| no root-cause routing | ₹4,041,752 | 4,861 | +2.0% | **−17.9%** |
+| naive 24/48/72h timing | ₹4,137,995 | 4,506 | +2.0% | **−15.9%** |
+| no customer nudges | ₹4,518,205 | 4,406 | +12.7% | **−8.2%** |
+| no cost floor | ₹4,923,000 | 4,439 | +23.6% | +0.0% |
+
+Routing by root cause is worth 17.9% of recovery and 11.6% of the attempt budget. Scheduling
+against each cause's recovery curve rather than a flat 24-hour interval is worth another
+15.9%. Customer nudges are worth 8.2%. Strip routing *and* timing and the advantage over the
+naive baseline collapses from +23.6% to +2.0%, which is the whole thesis of this project
+stated as a number.
+
+The last row is the one worth reading carefully. **Removing the cost floor changes recovery
+by essentially nothing, and increases attempts by 1.9%.** That is the correct result, not a
+disappointing one: the cost floor is a spend-control rule, not a recovery rule, and it earns
+its place in the attempts column rather than the rupees column. A table built to flatter the
+design would not have surfaced that, so this one is built to.
+
+Hard stops are honoured in every variant. No amount of feature removal produces a retry on a
+stolen card, and CI asserts it.
+
 ### Recovery by root cause
 
 | Root cause | Cases | At risk | Recovered | Rate | Charge attempts | Contacts | Escalated |
@@ -274,7 +304,7 @@ enters the recovery-rate denominator.
 | 6 | Escalation queue | `escalation.py` | Exhausted, refused and `UNKNOWN` cases reach a human with the full decision chain, the rule that fired, a recommended action and a priority rank. |
 | 7 | Audit trail | `audit.py` | Append-only JSONL, monotonic sequence, SHA-256 hash chain. Editing or deleting an event is detectable. |
 | 8 | Metrics | `metrics.py` | Computed from the log, never from memory. `verify-audit` re-derives every published number and diffs it. |
-| 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `queue` and `events`. |
+| 9 | CLI | `cli.py` | `generate`, `run`, `report`, `replay`, `verify-audit`, plus `benchmark`, `ablate`, `queue` and `events`. |
 | 10 | Report | `report.py` | Self-contained HTML, no external requests, with two worked examples traced event by event. |
 
 ## Stopping rules
@@ -325,10 +355,11 @@ unclassified case, that every stop and refusal names a rule, and finally that ev
 make check      # ruff, mypy --strict, pytest
 make cov        # with coverage
 make benchmark  # sweep 30 seeds and print the delta distribution
+make ablate     # measure what each design decision is worth
 make ci         # everything CI runs, including verify-audit and the seed sweep
 ```
 
-142 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
+161 tests, 94% line coverage, `ruff` and `mypy --strict` clean. Pydantic models for every
 record and event; no bare dicts cross a module boundary.
 
 ## Further reading

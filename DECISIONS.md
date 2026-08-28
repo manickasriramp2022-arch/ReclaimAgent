@@ -268,7 +268,33 @@ this size it renders as `0.0008`, which tells a reviewer nothing. `recovered_pai
 carries the same information the way a human reads it (₹1,334 recovered per charge attempt)
 and both appear side by side. Renaming the one the brief asked for would have been worse.
 
-## 27. Defaults chosen where the brief was silent
+## 27. The design is ablated, and the ablation is allowed to be unflattering
+
+**Decision.** `reclaim ablate` disables one feature at a time (root-cause routing, curve-aware
+timing, customer nudges, the cost floor) and re-measures over identical seeds. The report
+renders the table and CI runs a six-seed version.
+
+**Why.** The sweep answers "does it beat the baseline?". A reviewer's next question is "which
+part of it is doing the work?", and prose is a weak answer. An ablation turns the project's
+central claim, that routing by root cause is what earns the money, into a number: strip
+routing and timing and the advantage over the naive baseline falls from +23.6% to +2.0%.
+
+**The unflattering row is the point.** Disabling the cost floor changes recovery by
+approximately zero. That is reported as approximately zero rather than smoothed away,
+because the cost floor is a spend-control rule; it earns its place in the attempts column
+(+1.9% attempts when removed), not the rupee column. A test asserts that a variant which
+costs nothing is reported as costing nothing, so the table cannot quietly start flattering
+the design later.
+
+**Design constraint.** The "no root-cause routing" variant deliberately leaves hard stops
+intact. Removing them too would have measured recklessness rather than routing, and would
+have produced a much bigger, much less honest number. A test asserts hard stops survive
+that variant.
+
+**Cost.** Five full pipeline runs per seed makes this the slowest command in the project, at
+about 15 seconds for 12 seeds. It is worth 15 seconds.
+
+## 28. Defaults chosen where the brief was silent
 
 | Choice | Value | Reasoning |
 |---|---|---|

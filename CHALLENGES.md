@@ -211,7 +211,41 @@ and it would have been easy to quietly re-point the README at seed 17 (+79.7%) i
 report is built from. The sweep now runs entirely in a temporary directory with a disabled
 cache, and a test asserts that running one leaves the working directory untouched.
 
-## 10. Test fixtures that were quietly writing to the project's output directory
+## 10. Proving the win came from the design, not from somewhere else
+
+**What happened.** The seed sweep established that the system beats the baseline on 30 of 30
+batches. It could not say *why*. The README claimed root-cause routing was the reason, but
+that was an argument, not a measurement, and several other things changed at the same time:
+the retimed schedules, the customer nudges, the cost floor.
+
+**Why it mattered.** If the advantage actually came from the retiming alone, then "route by
+root cause" is the wrong headline and the classifier is expensive decoration. There was no
+way to tell from the repository.
+
+**Solution.** `reclaim ablate` disables one feature at a time and re-runs the full pipeline
+plus baseline over identical seeds. Variants are produced by mutating a copy of
+`config/policies.yaml` on disk and reloading it through the normal loader, so an ablation
+exercises the same configuration path the real system uses rather than a special-cased
+in-memory shortcut.
+
+**What it found.** Routing is worth 17.9% of recovery, curve-aware timing another 15.9%,
+nudges 8.2%. Removing routing and timing together drops the advantage over the naive
+baseline from +23.6% to +2.0%. The headline survived contact with the measurement.
+
+**The row I did not delete.** Disabling the cost floor changes recovery by +0.0% and
+*increases* attempts by 1.9%. On first reading that looks like a feature not earning its
+place. It is the opposite: the cost floor is a spend-control rule, and a spend-control rule
+that moved the recovery number would be doing something wrong. The report says this in
+prose next to the table, and a test asserts that a zero-cost variant is reported as
+zero-cost, so the table cannot drift into flattering the design later.
+
+**Trap avoided.** The first draft of the "no root-cause routing" variant replaced *every*
+policy with one template, including `HARD_DECLINE` and `MANDATE_REVOKED`. That would have
+had the variant retrying stolen cards, producing a far larger and completely dishonest
+number: it would have been measuring recklessness, not routing. The variant now leaves hard
+stops intact and a test asserts it.
+
+## 11. Test fixtures that were quietly writing to the project's output directory
 
 **What happened.** The `Classifier` writes its LLM cache to `out/llm_cache.json` on flush.
 Tests constructing a classifier were therefore touching the real `out/` directory, which

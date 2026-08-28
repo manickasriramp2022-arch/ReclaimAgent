@@ -15,6 +15,12 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .ablation import (
+    DEFAULT_ABLATION_SEEDS,
+    render_ablation,
+    run_ablation,
+    write_ablation,
+)
 from .audit import read_audit
 from .baseline import run_baseline
 from .benchmark import (
@@ -175,6 +181,20 @@ def cmd_benchmark(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ablate(args: argparse.Namespace) -> int:
+    config = load_config(args.config_dir)
+    print(SIMULATION_NOTICE)
+    print(
+        "disabling one feature at a time and re-measuring over "
+        f"{args.seeds} seeds of {args.size} cases\n"
+    )
+    report = run_ablation(config, seeds=args.seeds, size=args.size, first_seed=args.first_seed)
+    path = write_ablation(report, args.out_dir / "ablation.json")
+    print(render_ablation(report))
+    print(f"\nwrote {path}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     run_id = _resolve_run(args.run, args.out_dir)
     path = write_report(run_id, args.out_dir, load_config(args.config_dir))
@@ -291,6 +311,15 @@ def build_parser() -> argparse.ArgumentParser:
     ben.add_argument("--size", type=int, default=DEFAULT_BATCH_SIZE)
     ben.add_argument("--first-seed", type=int, default=1)
     ben.set_defaults(func=cmd_benchmark)
+
+    abl = sub.add_parser(
+        "ablate",
+        help="disable one design feature at a time and measure what each is worth",
+    )
+    abl.add_argument("--seeds", type=int, default=DEFAULT_ABLATION_SEEDS)
+    abl.add_argument("--size", type=int, default=DEFAULT_BATCH_SIZE)
+    abl.add_argument("--first-seed", type=int, default=1)
+    abl.set_defaults(func=cmd_ablate)
 
     rep = sub.add_parser("report", help="render the self-contained HTML report")
     rep.add_argument("--run", default=None)

@@ -10,10 +10,11 @@ BIN     := $(VENV)/bin
 SEED    ?= 42
 SIZE    ?= 250
 SEEDS   ?= 30
+ABL     ?= 12
 BATCH   := data/batch_$(SEED).jsonl
 
 .DEFAULT_GOAL := help
-.PHONY: help venv install demo generate run benchmark report replay verify queue test lint types check fmt clean distclean ci
+.PHONY: help venv install demo generate run benchmark ablate report replay verify queue test lint types check fmt clean distclean ci
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -29,19 +30,22 @@ install: venv ## Install the package and dev dependencies
 	@$(BIN)/pip install --quiet -e ".[dev]"
 
 demo: install ## Generate, run, sweep, verify, report, open (the whole pitch, offline)
-	@echo "=== 1/5  generating a synthetic test-mode batch ==="
+	@echo "=== 1/6  generating a synthetic test-mode batch ==="
 	@$(BIN)/reclaim generate --seed $(SEED) --size $(SIZE)
 	@echo ""
-	@echo "=== 2/5  running the recovery pipeline and the naive baseline ==="
+	@echo "=== 2/6  running the recovery pipeline and the naive baseline ==="
 	@$(BIN)/reclaim run --batch $(BATCH) --no-llm
 	@echo ""
-	@echo "=== 3/5  is the delta real, or one lucky batch? sweeping $(SEEDS) seeds ==="
+	@echo "=== 3/6  is the delta real, or one lucky batch? sweeping $(SEEDS) seeds ==="
 	@$(BIN)/reclaim benchmark --seeds $(SEEDS) --size $(SIZE) 2>&1 | tail -12
 	@echo ""
-	@echo "=== 4/5  verifying the audit trail ==="
+	@echo "=== 4/6  which part of the design earns the money? ==="
+	@$(BIN)/reclaim ablate --seeds $(ABL) --size $(SIZE) 2>&1 | tail -13
+	@echo ""
+	@echo "=== 5/6  verifying the audit trail ==="
 	@$(BIN)/reclaim verify-audit
 	@echo ""
-	@echo "=== 5/5  rendering the report ==="
+	@echo "=== 6/6  rendering the report ==="
 	@$(BIN)/reclaim report --open
 
 generate: install ## Generate a batch (SEED=42 SIZE=250)
@@ -55,6 +59,9 @@ run-llm: install ## Run with the Anthropic classifier fallback enabled
 
 benchmark: install ## Re-run the baseline comparison across SEEDS seeds
 	@$(BIN)/reclaim benchmark --seeds $(SEEDS) --size $(SIZE)
+
+ablate: install ## Measure what each design decision is worth
+	@$(BIN)/reclaim ablate --seeds $(ABL) --size $(SIZE)
 
 report: install ## Render the HTML report for the latest run
 	@$(BIN)/reclaim report
@@ -92,6 +99,7 @@ ci: check ## Everything CI runs, including verify-audit and the seed sweep
 	@$(BIN)/reclaim run --batch data/batch_1234.jsonl --no-llm
 	@$(BIN)/reclaim verify-audit
 	@$(BIN)/reclaim benchmark --seeds 12 --size 120
+	@$(BIN)/reclaim ablate --seeds 6 --size 120
 	@$(BIN)/reclaim report
 
 clean: ## Remove generated data, logs and reports
