@@ -461,3 +461,56 @@ would have made test runs order-dependent and could have polluted a demo run's a
 run. Separately, `build_run` moved out of `conftest.py` into `tests/helpers.py`, because
 pytest's conftest is not an importable package and `from .conftest import ...` fails
 collection.
+
+## 18. A correct control that nothing was holding up
+
+**What happened.** A security review of the finished diff found no exploitable defect:
+`yaml.safe_load` at both call sites, no `eval`/`exec`/`pickle`/`subprocess` anywhere in
+`src/reclaim`, the API key read from the environment and never interpolated into a log
+line or an error message, paths built only from trusted CLI flags and an
+internally-derived `run_id`.
+
+What it did find was a gap. Two of the strings the HTML report renders are not written by
+this codebase. `case_id` arrives in the batch file, and `--batch` accepts any path, so it
+is attacker-controlled through the tool's own documented interface. The classifier's
+`rationale` is free text from a language model, produced in response to a
+`decline_description` that itself came from the batch, and `engine.py` stamps it straight
+into the audit event's `detail`, which the report renders. Both were escaped correctly in
+every single place. Neither was asserted anywhere. The property was held up by whoever
+last edited a template string remembering to type `_esc()`.
+
+**Solution.** `tests/test_report_escaping.py` poisons both, runs the real engine, renders
+the real report and asserts no tag-forming sequence survives. Deleting either `_esc` call
+fails it; I checked by deleting them.
+
+**Two things the tests corrected in my own first draft**, both the same mistake:
+
+Asserting `onerror=alert(2)` was absent is the wrong check. That substring survives
+escaping and is completely inert, because `&lt;img ...&gt;` is text. What must never
+survive is a sequence a parser reads as a tag, so the assertion is on `<script` and
+`<img`.
+
+The rationale test passed vacuously at first. Blanking the decline code was not enough to
+reach the model: the generator's description still says "insufficient funds", a keyword
+pattern matched it, the rule layer answered, and the model was never consulted. Every
+test here asserts both that the payload is neutered *and* that its escaped form is on the
+page. The second assertion is the only thing between this and a guard over nothing, and
+it is what caught it.
+
+**A stale number found in the same pass.** The README claimed 214 tests and the PR body
+claimed 186; the suite has 217. `reclaim verify-docs` regenerates a run and diffs every
+figure the README quotes against the audit log, but a test count is a repository fact,
+not a run fact, so the gate could not see it. `scripts/check_readme_counts.sh` now derives
+it from pytest collection, in `make ci` and in CI, and fails on a missing claim as well as
+a wrong one — deleting the sentence does not make the check pass.
+
+Coverage is floored at the claimed figure via `fail_under`. It stays 94%, not 95%: actual
+coverage is 94.58% and the terminal report rounds that to "95%". I had already edited the
+README to say 95 off that rounded display before checking the real number. A floor claim
+truncates.
+
+**Why this belongs in this file.** Nothing here was broken. Every one of these is the
+same shape as the six defects in §14 — a number or a property that looked established and
+was resting on convention. The lesson repeated is that "it is correct everywhere I
+looked" and "the build will tell me when it stops being correct" are different claims,
+and only the second one survives someone else editing the file.
