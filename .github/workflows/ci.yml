@@ -111,13 +111,19 @@ jobs:
       - name: README figures must trace to an actual run
         # Documentation rot is the quiet failure mode of a project whose whole
         # claim is that its numbers are measured. This regenerates the run the
-        # README quotes and fails the build on a single stale figure.
+        # README quotes and fails the build on a stale figure. A figure quoted
+        # in several places is caught only when every occurrence is wrong.
         run: |
           reclaim generate --seed 42 --size 250
           reclaim run --batch data/batch_42.jsonl --no-llm > /dev/null
           reclaim benchmark --seeds 30 --size 250 > /dev/null
           reclaim ablate --seeds 12 --size 250 > /dev/null
           reclaim verify-docs --document README.md
+
+      - name: README test count matches the suite
+        # verify-docs checks figures against a run's audit log, so it cannot see
+        # a repository fact like the test count - which went stale silently once.
+        run: BIN=$(dirname $(which python)) ./scripts/check_readme_counts.sh README.md
 
       - name: Mutation-test the README gate against the run just generated
         # These tests skip without run artefacts, which is correct for a fresh

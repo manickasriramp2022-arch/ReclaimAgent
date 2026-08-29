@@ -71,6 +71,7 @@ verify: install ## Verify the audit log and recompute every metric from it
 
 verify-docs: install ## Check every headline figure in README.md against the run on disk
 	@$(BIN)/reclaim verify-docs --document README.md
+	@BIN=$(BIN) ./scripts/check_readme_counts.sh README.md
 
 queue: install ## Print the human escalation queue
 	@$(BIN)/reclaim queue
@@ -109,6 +110,7 @@ ci: check ## Everything CI runs, including verify-audit and the seed sweep
 	@$(BIN)/reclaim benchmark --seeds $(SEEDS) --size $(SIZE) >/dev/null
 	@$(BIN)/reclaim ablate --seeds $(ABL) --size $(SIZE) >/dev/null
 	@$(BIN)/reclaim verify-docs --document README.md
+	@BIN=$(BIN) ./scripts/check_readme_counts.sh README.md
 
 clean: ## Remove generated data, logs and reports
 	rm -rf out/*.jsonl out/*.json out/*.html out/*.txt data/*.jsonl

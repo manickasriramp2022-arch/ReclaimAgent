@@ -66,3 +66,12 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["error::DeprecationWarning:reclaim.*"]
+
+[tool.coverage.report]
+# The README claims 94% line coverage. This is what stops that claim drifting
+# upward of the truth: a drop below it fails the build. It does not catch a
+# claim that understates coverage, which is the harmless direction.
+#
+# 94, not 95: actual coverage is 94.58%, and a terminal report that rounds it to
+# "95%" is not a licence to publish 95. A floor claim truncates.
+fail_under = 94
