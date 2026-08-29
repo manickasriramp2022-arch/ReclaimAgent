@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from reclaim.classify import Classifier
+from reclaim.classify import Classifier, LlmClient
 from reclaim.config import AppConfig
 from reclaim.engine import RecoveryRun
 from reclaim.generate import write_batch
@@ -19,16 +19,17 @@ def build_run(
     out_dir: Path,
     tmp_path: Path,
     seed: int = TEST_SEED,
+    llm_client: LlmClient | None = None,
 ) -> RecoveryRun:
     batch_path = write_batch(records, tmp_path / f"batch_{seed}.jsonl")
     return RecoveryRun(
         config,
         records,
         seed,
-        Classifier(config, llm_client=None, cache=_NoCache()),
+        Classifier(config, llm_client=llm_client, cache=_NoCache()),
         batch_path,
         out_dir=out_dir,
-        llm_enabled=False,
+        llm_enabled=llm_client is not None,
     )
 
 

@@ -401,4 +401,6 @@ record and event; no bare dicts cross a module boundary.
   unverified ones flagged.
 - [`CHALLENGES.md`](CHALLENGES.md) — the technical obstacles actually hit while building
   this, and how they were solved.
+- [`SECURITY.md`](SECURITY.md) — what this tool trusts, what it does not, and the
+  controls between them.
 - [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) — the five-minute video runsheet.
