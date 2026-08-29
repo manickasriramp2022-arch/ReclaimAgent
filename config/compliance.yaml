@@ -1,0 +1,123 @@
+# ReclaimAgent - compliance constants.
+#
+# READ THIS BEFORE CHANGING ANYTHING HERE.
+#
+# Every regulatory / network constraint the engine enforces lives in this file
+# as a NAMED, EDITABLE constant with an explicit provenance field. Nothing in
+# this repository asserts a regulator's or a card network's figure as fact.
+#
+# Each entry carries:
+#   value       - the number/flag the engine enforces
+#   unverified  - true when the author could not verify the figure against a
+#                 primary source while building this project. Treat every
+#                 `unverified: true` entry as a placeholder.
+#   source      - where a production team must go to confirm it
+#   note        - what the constraint is for
+#
+# Every `unverified: true` entry is reproduced in COMPLIANCE_NOTES.md under
+# "Values requiring confirmation before production use".
+
+schema_version: 1
+
+# ---------------------------------------------------------------------------
+# Consent
+# ---------------------------------------------------------------------------
+consent:
+  required_before_contact:
+    value: true
+    unverified: false
+    source: "Design decision, not a cited regulation. Consent-gating outbound dunning is a defensible default under India's DPDP Act 2023 and TRAI commercial-communication rules; the precise obligation depends on channel and content."
+    note: "If the customer record does not carry contact consent, the engine refuses every customer-contact channel and logs a compliance refusal. Retry-charge on an existing mandate is NOT treated as customer contact."
+  refusal_is_terminal_for_contact_channels:
+    value: true
+    unverified: false
+    source: "Design decision."
+    note: "Missing consent is not something a retry loop can cure, so it terminates the contact path rather than deferring it."
+
+# ---------------------------------------------------------------------------
+# E-mandate / recurring debit constraints
+# ---------------------------------------------------------------------------
+emandate:
+  pre_debit_notification_lead_hours:
+    value: 24
+    unverified: true
+    source: "RBI Framework for processing of e-mandates on recurring transactions (RBI/2019-20/47 DPSS.CO.PD.No.447/02.14.003/2019-20 and subsequent circulars). CONFIRM the current lead time and the exact notification content requirements with compliance counsel before production use."
+    note: "A recurring debit is refused unless a pre-debit notification was sent at least this many hours before the debit instant."
+  afa_exemption_threshold_paise:
+    value: 1500000
+    unverified: true
+    source: "RBI circulars on Additional Factor of Authentication (AFA) for recurring e-mandate transactions. The threshold has been revised more than once and differs by transaction category. CONFIRM the applicable current threshold and category carve-outs before production use."
+    note: "Above this amount the engine refuses an unattended auto-debit retry and routes the case to a customer-authenticated path instead."
+  mandate_must_be_active:
+    value: true
+    unverified: false
+    source: "Contractual/first-principles: a revoked, paused or expired mandate is not a valid debit authority."
+    note: "Debits are refused unless mandate_status == active."
+  max_debits_per_mandate_per_day:
+    value: 1
+    unverified: true
+    source: "Network / sponsor-bank operating rules for NACH and card-on-file e-mandates. CONFIRM with the sponsoring bank and the relevant network before production use."
+    note: "Rolling 24h cap on debit attempts against a single mandate."
+
+# ---------------------------------------------------------------------------
+# Card network retry constraints
+# ---------------------------------------------------------------------------
+card_network:
+  max_retries_per_declined_authorisation:
+    value: 4
+    unverified: true
+    source: "Card network (Visa / Mastercard) merchant retry rules for declined authorisations. These caps differ by network, by decline reason and by region, and they change. CONFIRM per network before production use."
+    note: "Hard ceiling on retry attempts per originally-declined authorisation, applied on top of the per-policy attempt cap."
+  min_hours_between_retries:
+    value: 24
+    unverified: true
+    source: "Card network merchant retry rules. CONFIRM per network before production use."
+    note: "Minimum spacing between two retry attempts on the same declined authorisation."
+  retry_spacing_exempt_categories:
+    value: ["TECHNICAL_ERROR"]
+    unverified: true
+    source: "Card network merchant retry rules distinguish a declined authorisation from a transaction that never reached an authorisation decision. CONFIRM with the acquirer which of their response codes fall outside the retry-spacing rules before production use."
+    note: "Root causes exempt from card_network.min_hours_between_retries. A gateway timeout or upstream 5xx is not a declined authorisation - no issuer decision was returned - so spacing rules written for declines do not apply and the policy's own short backoff governs instead."
+
+  no_retry_reason_codes:
+    value: ["HD_STOLEN_CARD", "HD_FRAUD_SUSPECTED", "HD_ACCOUNT_CLOSED", "MR_MANDATE_REVOKED"]
+    unverified: false
+    source: "Design decision derived from the classifier's own hard-stop categories; a production system must map this list to its acquirer's actual reason codes."
+    note: "Reason codes for which zero retries are permitted, enforced independently of the policy engine as a second line of defence."
+
+# ---------------------------------------------------------------------------
+# Customer contact constraints
+# ---------------------------------------------------------------------------
+contact:
+  quiet_hours_local:
+    start: "21:00"
+    end: "09:00"
+    timezone: "Asia/Kolkata"
+    unverified: true
+    source: "TRAI Telecom Commercial Communications Customer Preference Regulations set time-band restrictions for commercial communication. CONFIRM the exact permitted window and the transactional/service-message carve-outs before production use."
+    note: "No outbound customer contact is dispatched inside this local window; the action is deferred to the next permitted instant."
+  max_contacts_per_customer_per_day:
+    value: 2
+    unverified: true
+    source: "TRAI commercial-communication frequency norms and merchant policy. CONFIRM before production use."
+    note: "Rolling 24h cap on outbound dunning messages per customer across all channels."
+  max_contacts_per_customer_per_week:
+    value: 5
+    unverified: true
+    source: "Merchant policy placeholder. CONFIRM before production use."
+    note: "Rolling 7-day cap on outbound dunning messages per customer."
+
+# ---------------------------------------------------------------------------
+# Data handling
+# ---------------------------------------------------------------------------
+data:
+  environment_must_be_test:
+    value: true
+    unverified: false
+    source: "Design decision."
+    note: "The engine refuses to process any record not marked environment=test. This project never touches live payment data."
+  log_pan_or_vpa:
+    value: false
+    unverified: false
+    source: "PCI DSS prohibits storing sensitive authentication data; card numbers are never generated or logged here at all."
+    note: "No PAN, VPA, or contact identifier is written to the audit log. Only opaque customer/mandate identifiers."

@@ -1,0 +1,290 @@
+# ReclaimAgent - recovery policy engine configuration.
+#
+# One policy per root-cause category. The engine contains no per-category
+# branching: it reads this file and executes the plan it finds. Adding a
+# category means adding a block here, not editing Python.
+#
+# Channels:
+#   retry_charge               - re-present the debit. Consumes a charge attempt.
+#   dunning_email              - outbound email nudge. Consumes a contact slot.
+#   sms                        - outbound SMS nudge. Consumes a contact slot.
+#   update_payment_method_link - send a hosted link for the customer to fix
+#                                their instrument. Consumes a contact slot.
+#
+# `plan` is the authoritative sequence. `after_hours` is the delay from case
+# start (not from the previous step), so the list also reads as the backoff
+# schedule. Steps are executed in order; the engine may defer a step for quiet
+# hours or a compliance window, never reorder it.
+
+schema_version: 1
+
+defaults:
+  escalate_on_exhaustion: true
+  escalate_on_terminal_refusal: true
+  # Terminal-stopped cases (hard declines) are not normally worth human time,
+  # but value overrides that: anything at or above this goes to the queue.
+  escalate_terminal_above_paise: 2000000
+
+policies:
+
+  INSUFFICIENT_FUNDS:
+    recoverable: true
+    immediate_terminal: false
+    max_charge_attempts: 3
+    backoff_hours: [40, 122, 170]
+    allowed_channels: [retry_charge, dunning_email, sms]
+    quiet_hours_apply: true
+    plan:
+      - {after_hours: 4,   channel: dunning_email}
+      - {after_hours: 40,  channel: retry_charge}
+      - {after_hours: 96,  channel: sms}
+      - {after_hours: 122, channel: retry_charge}
+      - {after_hours: 170, channel: retry_charge}
+    terminal_conditions: [charge_attempts_exhausted, cost_floor, network_retry_cap]
+    rationale: >-
+      Balance-driven failures are timing problems, not authority problems, so
+      the money matters more than the speed. Nudge first, then re-present on
+      the rising part of the balance-recovery curve rather than immediately,
+      and put the last attempt a week out where the curve peaks. Re-presenting
+      at +6h, which is what an untuned dunning job does, spends an attempt at
+      the worst moment.
+
+  ISSUER_SOFT_DECLINE:
+    recoverable: true
+    immediate_terminal: false
+    max_charge_attempts: 3
+    backoff_hours: [3, 27, 75]
+    allowed_channels: [retry_charge, dunning_email]
+    quiet_hours_apply: true
+    plan:
+      - {after_hours: 3,   channel: retry_charge}
+      - {after_hours: 27,  channel: retry_charge}
+      - {after_hours: 51,  channel: dunning_email}
+      - {after_hours: 75,  channel: retry_charge}
+    terminal_conditions: [charge_attempts_exhausted, cost_floor, network_retry_cap]
+    rationale: >-
+      Soft declines often clear on re-presentment, but the marginal value of
+      each further attempt decays fast, so the cost floor usually bites before
+      the attempt cap does.
+
+  TECHNICAL_ERROR:
+    recoverable: true
+    immediate_terminal: false
+    max_charge_attempts: 3
+    backoff_hours: [1, 4, 24]
+    allowed_channels: [retry_charge]
+    quiet_hours_apply: false
+    plan:
+      - {after_hours: 1,  channel: retry_charge}
+      - {after_hours: 4,  channel: retry_charge}
+      - {after_hours: 24, channel: retry_charge}
+    terminal_conditions: [charge_attempts_exhausted, cost_floor]
+    rationale: >-
+      Nothing is wrong with the customer or the instrument, so a short backoff
+      is appropriate and no customer contact is warranted. Quiet hours do not
+      apply because no message is sent.
+
+  EXPIRED_CARD:
+    recoverable: true
+    immediate_terminal: false
+    max_charge_attempts: 1
+    backoff_hours: [120]
+    allowed_channels: [update_payment_method_link, dunning_email, retry_charge]
+    quiet_hours_apply: true
+    plan:
+      - {after_hours: 2,   channel: update_payment_method_link}
+      - {after_hours: 72,  channel: dunning_email}
+      - {after_hours: 168, channel: retry_charge}
+    terminal_conditions: [charge_attempts_exhausted, contact_cap, cost_floor]
+    rationale: >-
+      Retrying an expired instrument cannot succeed. The only recovery path is
+      customer action, so the plan leads with the update link and re-presents
+      exactly once, late, on the assumption the instrument was replaced.
+
+  HARD_DECLINE:
+    recoverable: false
+    immediate_terminal: true
+    terminal_rule: hard_stop_category
+    max_charge_attempts: 0
+    backoff_hours: []
+    allowed_channels: []
+    quiet_hours_apply: true
+    plan: []
+    terminal_conditions: [hard_stop_category]
+    rationale: >-
+      Stolen cards, closed accounts and issuer fraud flags are statements about
+      authority, not about timing. Re-presenting burns network goodwill and can
+      attract penalties. Zero attempts, immediate terminal state.
+
+  MANDATE_REVOKED:
+    recoverable: false
+    immediate_terminal: true
+    terminal_rule: hard_stop_category
+    max_charge_attempts: 0
+    backoff_hours: []
+    allowed_channels: []
+    quiet_hours_apply: true
+    plan: []
+    terminal_conditions: [hard_stop_category]
+    rationale: >-
+      The customer withdrew debit authority. Any further debit attempt is an
+      unauthorised debit. Zero attempts, immediate terminal state.
+
+  UNKNOWN:
+    recoverable: false
+    immediate_terminal: true
+    terminal_rule: unknown_requires_human
+    max_charge_attempts: 0
+    backoff_hours: []
+    allowed_channels: []
+    quiet_hours_apply: true
+    plan: []
+    terminal_conditions: [unknown_requires_human]
+    always_escalate: true
+    rationale: >-
+      An unclassified decline is never silently retried. It goes straight to a
+      human with the raw code attached, because the cost of retrying something
+      we do not understand is unbounded.
+
+# ---------------------------------------------------------------------------
+# Stopping rules. Every rule here has a name; when it fires, that name is
+# written into the audit log as the reason the case stopped.
+# ---------------------------------------------------------------------------
+stopping_rules:
+
+  hard_stop_category:
+    enabled: true
+    categories: [HARD_DECLINE, MANDATE_REVOKED]
+    description: "Zero retries, immediate terminal state, no exceptions."
+
+  unknown_requires_human:
+    enabled: true
+    categories: [UNKNOWN]
+    description: "Unclassified declines are escalated, never retried."
+
+  max_attempts_per_case:
+    enabled: true
+    description: "Charge attempts made during this run may not exceed the policy's max_charge_attempts. Attempts spent before the batch are counted separately, by card_network.max_retries_per_declined_authorisation in the compliance layer, so the two ceilings stay independently auditable."
+    count_prior_attempts: false
+
+  rolling_window_attempt_cap:
+    enabled: true
+    window_hours: 24
+    max_charge_attempts: 1
+    description: >-
+      At most one charge attempt against the same case in any rolling 24h
+      window. Categories listed in exempt_categories are governed by their
+      policy's own backoff instead: a gateway timeout never produced an issuer
+      decision, so throttling it like a decline just delays a retry that was
+      always going to be cheap and likely.
+    exempt_categories: [TECHNICAL_ERROR]
+
+  cost_floor:
+    enabled: true
+    description: "Stop when the projected cost of the next attempt exceeds the expected value it recovers."
+    # Fully-loaded cost the merchant bears per action, in paise.
+    attempt_cost_paise:
+      retry_charge: 350
+      dunning_email: 40
+      sms: 190
+      update_payment_method_link: 190
+    # An attempt must be expected to return at least this multiple of its cost.
+    min_expected_value_multiple: 1.5
+    # The engine's own prior on the next charge attempt succeeding, by category
+    # and attempt number. This is the ENGINE's belief, deliberately kept
+    # separate from config/simulation.yaml, which is the simulated ground
+    # truth. The engine is not allowed to peek at the simulator.
+    # Calibrated from the merchant's own recovery history in a production
+    # deployment. Here they are hand-set to plausible values that are close to,
+    # but deliberately not identical to, the simulator's ground truth: the
+    # engine is meant to act on an imperfect belief, not on the answer key.
+    expected_success_prior:
+      INSUFFICIENT_FUNDS:   [0.22, 0.24, 0.19, 0.10]
+      ISSUER_SOFT_DECLINE:  [0.19, 0.09, 0.04, 0.02]
+      TECHNICAL_ERROR:      [0.50, 0.26, 0.13, 0.05]
+      EXPIRED_CARD:         [0.20, 0.06, 0.02, 0.01]
+      HARD_DECLINE:         [0.0, 0.0, 0.0, 0.0]
+      MANDATE_REVOKED:      [0.0, 0.0, 0.0, 0.0]
+      UNKNOWN:              [0.0, 0.0, 0.0, 0.0]
+    # Recovered value is not all margin. Only this share of a recovered rupee
+    # is treated as value to the merchant when testing the floor.
+    recovered_value_margin: 0.85
+
+  contact_frequency_cap:
+    enabled: true
+    description: "Per-customer outbound contact caps, read from config/compliance.yaml (contact.max_contacts_per_customer_per_day / _per_week)."
+
+  quiet_hours:
+    enabled: true
+    description: "Customer contact inside the compliance quiet-hours window is deferred to the next permitted instant, not cancelled. Logged as a deferral, not a stop."
+    max_deferrals_per_step: 3
+
+  plan_exhausted:
+    enabled: true
+    description: "The policy's plan ran to the end without recovering the case. Terminal, and escalated when defaults.escalate_on_exhaustion is set."
+
+  network_retry_cap:
+    enabled: true
+    description: "Independent ceiling from config/compliance.yaml (card_network.max_retries_per_declined_authorisation and min_hours_between_retries), enforced on top of the policy attempt cap."
+
+  batch_circuit_breaker:
+    enabled: true
+    description: >-
+      Halts the whole run and escalates every open case when the batch is
+      failing far worse than the policy engine itself predicted. Two conditions
+      must both hold, which is what separates a real outage from the natural
+      tail of a decay curve: the absolute failure rate over the recent window
+      must clear failure_rate_threshold, AND observed successes must fall below
+      expected_shortfall_ratio of the successes the engine's own priors
+      predicted for exactly those attempts. A cohort of genuinely hard cases
+      fails a lot but roughly as predicted, so it does not trip the breaker; a
+      dead acquirer produces zero successes against a non-zero prediction and
+      does.
+    min_attempts_before_arming: 40
+    failure_rate_threshold: 0.99
+    expected_shortfall_ratio: 0.25
+    min_expected_successes_in_window: 5.0
+    # Evaluated over the most recent N charge attempts across the batch.
+    window_attempts: 60
+
+# ---------------------------------------------------------------------------
+# Naive baseline, for the measured comparison. Deliberately dumb: retry
+# everything three times regardless of root cause, ignoring compliance.
+# ---------------------------------------------------------------------------
+baseline:
+  name: "naive_retry_3x"
+  description: "Retry every failed transaction 3 times at 24h intervals regardless of root cause, with no compliance checks and no stopping rules."
+  attempts: 3
+  interval_hours: 24
+  ignores_compliance: true
+  ignores_hard_stops: true
+
+# ---------------------------------------------------------------------------
+# Escalation queue. Priority is amount at risk weighted by how much a human can
+# realistically still do about it, so a large hopeless case does not outrank a
+# mid-sized fixable one.
+# ---------------------------------------------------------------------------
+escalation:
+  recoverability_weight:
+    INSUFFICIENT_FUNDS: 0.55
+    ISSUER_SOFT_DECLINE: 0.40
+    TECHNICAL_ERROR: 0.60
+    EXPIRED_CARD: 0.75
+    UNKNOWN: 0.50
+    HARD_DECLINE: 0.05
+    MANDATE_REVOKED: 0.10
+  recommended_actions:
+    unknown_requires_human: "Map decline code {decline_code} in config/decline_rules.yaml, then re-run this case. Do not retry until the code is mapped."
+    max_attempts_per_case: "Attempt budget spent. Call the customer or offer an alternate instrument; do not re-present on this rail."
+    cost_floor: "Further automated attempts cost more than they are expected to return. Batch into a monthly win-back campaign or write off."
+    contact_frequency_cap: "Contact budget for this customer is spent. Hold until the window resets, then send a single update-payment-method link."
+    network_retry_cap: "Network retry ceiling reached for this authorisation. A fresh authorisation is required; ask the customer to re-authorise."
+    batch_circuit_breaker: "Batch halted on a system-wide failure spike. Check gateway and acquirer health before releasing this queue."
+    consent.required_before_contact: "No contact consent on file. Recover consent through an in-product prompt before any outbound message."
+    emandate.mandate_must_be_active: "Mandate is not active. Ask the customer to create a fresh mandate; do not attempt to debit the old one."
+    emandate.afa_exemption_threshold_paise: "Amount exceeds the configured AFA threshold. Route to an authenticated checkout link rather than an unattended debit."
+    emandate.pre_debit_notification_lead_hours: "Pre-debit notification missing or too recent. Send the notification, wait out the lead time, then re-queue."
+    card_network.no_retry_reason_codes: "Never-retry reason code. Close the recurring plan and ask the customer for a new instrument."
+    card_network.max_retries_per_declined_authorisation: "Network retry ceiling reached. Obtain a fresh authorisation before any further attempt."
+    hard_stop_category: "Non-recoverable decline. Cancel the subscription cycle and ask the customer for a new instrument."
+    default: "Review the decision chain and decide manually. No automated path remains."

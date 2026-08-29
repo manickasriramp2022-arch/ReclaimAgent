@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The pipeline must be provably runnable with no model access. CI never sets
+  # ANTHROPIC_API_KEY, so every run here exercises the offline rule-only path.
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+
+      - name: Types (mypy, strict)
+        run: mypy
+
+      - name: Tests
+        run: pytest --cov=reclaim --cov-report=term-missing
+
+      - name: Fixture run, offline
+        run: |
+          reclaim generate --seed 1234 --size 120
+          reclaim run --batch data/batch_1234.jsonl --no-llm
+
+      - name: verify-audit on the fixture run
+        run: reclaim verify-audit
+
+      - name: Seed sweep, is the delta a strategy property or one lucky batch
+        run: reclaim benchmark --seeds 12 --size 120
+
+      - name: Hard stops must be honoured on every seed
+        # The win rate is reported, not gated: policy tuning may legitimately
+        # move it. Honouring hard stops is not a tuning parameter, so a single
+        # seed that retries a stolen card or a revoked mandate fails the build.
+        run: |
+          python - <<'PY'
+          import json, sys, pathlib
+          report = json.loads(pathlib.Path("out/benchmark.json").read_text())
+          rows = report["rows"]
+          bad = [r["seed"] for r in rows if r["correctly_stopped_rate"] != 1.0]
+          wins = sum(1 for r in rows if r["delta_paise"] > 0)
+          print(f"{len(rows)} seeds swept; ReclaimAgent recovers more on {wins}")
+          if bad:
+              sys.exit(f"hard stops were NOT honoured on seeds: {bad}")
+          print("hard stops honoured on every seed")
+          PY
+
+      - name: Ablation, what each design decision is worth
+        run: reclaim ablate --seeds 6 --size 120
+
+      - name: Hard stops must survive every ablation
+        # No amount of feature removal may produce a retry on a stolen card or
+        # a revoked mandate. Recovery deltas are reported, not gated.
+        run: |
+          python - <<'PY'
+          import json, sys, pathlib
+          report = json.loads(pathlib.Path("out/ablation.json").read_text())
+          bad = [r["variant"] for r in report["rows"] if not r["hard_stops_always_honoured"]]
+          for row in sorted(report["rows"], key=lambda r: r["recovery_vs_full_pct"]):
+              print(f"{row['variant']:<28} recovery {row['recovery_vs_full_pct']:+.1%}"
+                    f"  attempts {row['attempts_vs_full_pct']:+.1%}")
+          if bad:
+              sys.exit(f"hard stops were NOT honoured in variants: {bad}")
+          print("hard stops honoured in every ablation variant")
+          PY
+
+      - name: Render the report
+        run: reclaim report
+
+      - name: Replay the two demo cases
+        run: |
+          reclaim replay --case @success
+          reclaim replay --case @stopped
+
+      - name: Determinism, same seed must give an identical audit log
+        run: |
+          RUN_ID=$(cat out/latest_run.txt)
+          cp "out/audit_${RUN_ID}.jsonl" /tmp/first.jsonl
+          reclaim run --batch data/batch_1234.jsonl --no-llm > /dev/null
+          diff -q /tmp/first.jsonl "out/audit_${RUN_ID}.jsonl"
+
+      - name: README figures must trace to an actual run
+        # Documentation rot is the quiet failure mode of a project whose whole
+        # claim is that its numbers are measured. This regenerates the run the
+        # README quotes and fails the build on a stale figure. A figure quoted
+        # in several places is caught only when every occurrence is wrong.
+        run: |
+          reclaim generate --seed 42 --size 250
+          reclaim run --batch data/batch_42.jsonl --no-llm > /dev/null
+          reclaim benchmark --seeds 30 --size 250 > /dev/null
+          reclaim ablate --seeds 12 --size 250 > /dev/null
+          reclaim verify-docs --document README.md
+
+      - name: README test count matches the suite
+        # verify-docs checks figures against a run's audit log, so it cannot see
+        # a repository fact like the test count - which went stale silently once.
+        run: BIN=$(dirname $(which python)) ./scripts/check_readme_counts.sh README.md
+
+      - name: Mutation-test the README gate against the run just generated
+        # These tests skip without run artefacts, which is correct for a fresh
+        # checkout and wrong here: the mutation test is the only evidence the
+        # docs gate can actually fail. The env var turns the skip into an error.
+        env:
+          RECLAIM_REQUIRE_ARTIFACTS: "1"
+        run: pytest tests/test_docscheck.py -q -rs
+
+      - name: No secrets committed
+        run: |
+          test ! -f .env
+          ! git ls-files | grep -qE '(^|/)\.env$'
+          ! git grep -nE 'sk-ant-[A-Za-z0-9_-]{20,}' -- . ':!.env.example' || {
+              echo "possible API key committed"; exit 1; }
+
+      - name: Upload the report and audit trail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reclaim-run-py${{ matrix.python-version }}
+          path: |
+            out/*.html
+            out/*.jsonl
+            out/*.json
+          retention-days: 7
